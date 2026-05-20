@@ -420,6 +420,7 @@ BEGIN
         POPUP "&Display"
         BEGIN
             MENUITEM "&Focused View\tCtrl+Alt+V",       IDM_VIEW_TOGGLE_VIEW
+            MENUITEM "Markdown &Preview",               IDM_VIEW_MARKDOWN_PREVIEW
             POPUP "View Mode"
             BEGIN
                 MENUITEM "Fold",                        IDM_VIEW_FV_FOLD

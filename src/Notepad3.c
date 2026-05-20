@@ -35,6 +35,8 @@
 #include "PathLib.h"
 #include "Edit.h"
 #include "EditRTF.h"
+#include <richedit.h>
+#include "md2rtf.h"
 #include "Styles.h"
 #include "Dialogs.h"
 #include "crypto/crypto.h"
@@ -140,6 +142,21 @@ FILEWATCHING_T FileWatching = { 0 };
 HWND      g_hwndEditWindow = NULL; 
 HANDLE    g_hndlScintilla  = NULL;
 
+struct MarkdownStreamState { const char* ptr; size_t len; };
+
+static DWORD CALLBACK MarkdownStreamInCallback(DWORD_PTR dwCookie, LPBYTE pbBuff, LONG cb, LONG *pcb) {
+    struct MarkdownStreamState* s = (struct MarkdownStreamState*)dwCookie;
+    LONG toCopy = (cb < (LONG)s->len) ? cb : (LONG)s->len;
+    if (toCopy > 0) {
+        memcpy(pbBuff, s->ptr, toCopy);
+        s->ptr += toCopy;
+        s->len -= toCopy;
+    }
+    *pcb = toCopy;
+    return 0;
+}
+
+
 // window positioning
 WININFO   g_IniWinInfo = INIT_WININFO;
 WININFO   g_DefWinInfo = INIT_WININFO;
@@ -197,6 +214,8 @@ static DWORD     s_dwLastPasteSeqNo = 0;
 static bool      s_bLastPasteSeqNoValid = false;
 static bool      s_bInMultiEditMode = false;
 static bool      s_bCallTipEscDisabled = false;
+static bool      s_bMarkdownPreviewVisible = false;
+HWND             g_hwndMarkdownPreview = NULL;
 
 static int       s_iInitialLine = 0;
 static int       s_iInitialColumn = 0;
@@ -267,6 +286,7 @@ static TBBUTTON  s_tbbMainWnd[] = {
     { 0, 0, 0, BTNS_SEP, { 0 }, 0, 0 },
     { 23, IDT_VIEW_TOGGLEFOLDS, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
     { 25, IDT_VIEW_TOGGLE_VIEW, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
+    { 32, IDT_VIEW_MARKDOWN_PREVIEW, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
     { 0, 0, 0, BTNS_SEP, { 0 }, 0, 0 },
     { 21, IDT_FILE_OPENFAV, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
     { 22, IDT_FILE_ADDTOFAV, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
@@ -3086,6 +3106,20 @@ LRESULT MsgCreate(HWND hwnd, WPARAM wParam,LPARAM lParam)
                            hInstance,
                            NULL);
 
+    LoadLibrary(L"MSFTEDIT.DLL"); // Ensure RichEdit is loaded
+    g_hwndMarkdownPreview = CreateWindowEx(
+                           WS_EX_CLIENTEDGE,
+                           L"RICHEDIT50W",
+                           NULL,
+                           (WS_CHILD | WS_CLIPSIBLINGS | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_READONLY) & ~WS_VISIBLE,
+                           0, 0, 0, 0,
+                           hwnd,
+                           (HMENU)(IDC_EDIT + 1), // Use a different ID
+                           hInstance,
+                           NULL);
+    SendMessage(g_hwndMarkdownPreview, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(4, 4));
+
+
     InitScintillaHandle(Globals.hwndEdit);
 
     _InitializeSciEditCtrl(Globals.hwndEdit);
@@ -3741,9 +3775,15 @@ LRESULT MsgSize(HWND hwnd, WPARAM wParam, LPARAM lParam)
 
     DeferWindowPos(hdwp,s_hwndEditFrame,NULL,x,y,cx,cy, SWP_NOZORDER | SWP_NOACTIVATE);
 
-    DeferWindowPos(hdwp, g_hwndEditWindow, s_hwndEditFrame,
-                   x+s_cxEditFrame,y+s_cyEditFrame, cx-2*s_cxEditFrame,cy-2*s_cyEditFrame,
-                   SWP_NOZORDER | SWP_NOACTIVATE);
+    if (s_bMarkdownPreviewVisible) {
+        DeferWindowPos(hdwp, g_hwndMarkdownPreview, s_hwndEditFrame,
+                       x+s_cxEditFrame,y+s_cyEditFrame, cx-2*s_cxEditFrame,cy-2*s_cyEditFrame,
+                       SWP_NOZORDER | SWP_NOACTIVATE);
+    } else {
+        DeferWindowPos(hdwp, g_hwndEditWindow, s_hwndEditFrame,
+                       x+s_cxEditFrame,y+s_cyEditFrame, cx-2*s_cxEditFrame,cy-2*s_cyEditFrame,
+                       SWP_NOZORDER | SWP_NOACTIVATE);
+    }
 
     EndDeferWindowPos(hdwp);
 
@@ -5033,6 +5073,7 @@ LRESULT MsgInitMenu(HWND hwnd, WPARAM wParam, LPARAM lParam)
     CheckCmd(hmenu, IDM_VIEW_MARKOCCUR_CASE, Settings.MarkOccurrencesMatchCase);
 
     CheckCmd(hmenu, IDM_VIEW_TOGGLE_VIEW, FocusedView.HideNonMatchedLines);
+    CheckCmd(hmenu, IDM_VIEW_MARKDOWN_PREVIEW, s_bMarkdownPreviewVisible);
     EnableCmd(hmenu, IDM_VIEW_TOGGLE_VIEW, IsFocusedViewAllowed());
 
     i = IDM_VIEW_FV_FOLD;
@@ -7140,6 +7181,56 @@ static bool _HandleViewAndSettingsCommands(HWND hwnd, UINT umsg, WPARAM wParam, 
         CheckCmd(GetMenu(hwnd), IDM_VIEW_TOGGLE_VIEW, FocusedView.HideNonMatchedLines);
         break;
 
+    case IDM_VIEW_MARKDOWN_PREVIEW:
+        s_bMarkdownPreviewVisible = !s_bMarkdownPreviewVisible;
+        if (s_bMarkdownPreviewVisible) {
+            DocPos len = SciCall_GetLength();
+            if (len > 0) {
+                char* text = (char*)malloc(len + 1);
+                if (text) {
+                    struct Sci_TextRange tr;
+                    tr.chrg.cpMin = 0;
+                    tr.chrg.cpMax = len;
+                    tr.lpstrText = text;
+                    SciCall_GetTextRange(&tr);
+
+                    char* rtf = ConvertMarkdownToRTF(text, len);
+                    if (rtf) {
+                        struct MarkdownStreamState state;
+                        state.ptr = rtf;
+                        state.len = strlen(rtf);
+                        EDITSTREAM es = {0};
+                        es.dwCookie = (DWORD_PTR)&state;
+                        es.pfnCallback = MarkdownStreamInCallback;
+                        SendMessage(g_hwndMarkdownPreview, EM_STREAMIN, SF_RTF, (LPARAM)&es);
+
+                        FreeMarkdownRTF(rtf);
+                    }
+                    free(text);
+                }
+            } else {
+                SETTEXTEX st = {0};
+                st.flags = ST_DEFAULT;
+                st.codepage = CP_UTF8;
+                SendMessage(g_hwndMarkdownPreview, EM_SETTEXTEX, (WPARAM)&st, (LPARAM)"");
+            }
+            ShowWindow(g_hwndEditWindow, SW_HIDE);
+            ShowWindow(g_hwndMarkdownPreview, SW_SHOW);
+            SetFocus(g_hwndMarkdownPreview);
+        } else {
+            ShowWindow(g_hwndMarkdownPreview, SW_HIDE);
+            ShowWindow(g_hwndEditWindow, SW_SHOW);
+            SetFocus(g_hwndEditWindow);
+        }
+        {
+            RECT rc;
+            GetClientRect(Globals.hwndMain, &rc);
+            SendMessage(Globals.hwndMain, WM_SIZE, SIZE_RESTORED, MAKELPARAM(rc.right, rc.bottom));
+        }
+        CheckCmd(GetMenu(hwnd), IDM_VIEW_MARKDOWN_PREVIEW, s_bMarkdownPreviewVisible);
+        UpdateToolbar();
+        break;
+
     case IDM_VIEW_FV_FOLD:
     case IDM_VIEW_FV_BOOKMARK:
     case IDM_VIEW_FV_HIGHLIGHT:
@@ -8422,6 +8513,7 @@ static const struct { unsigned idt; unsigned idm; } s_ToolbarDispatch[] = {
     { IDT_FILE_ADDTOFAV,           IDM_FILE_ADDTOFAV },
     { IDT_VIEW_TOGGLEFOLDS,        IDM_VIEW_TOGGLEFOLDS },
     { IDT_VIEW_TOGGLE_VIEW,        IDM_VIEW_TOGGLE_VIEW },
+    { IDT_VIEW_MARKDOWN_PREVIEW,   IDM_VIEW_MARKDOWN_PREVIEW },
     { IDT_VIEW_PIN_ON_TOP,         IDM_SET_ALWAYSONTOP },
     { IDT_FILE_LAUNCH,             IDM_FILE_LAUNCH },
 };
@@ -11046,6 +11138,7 @@ static void  _UpdateToolbarDelayed()
 
     EnableTool(Globals.hwndToolbar, IDT_VIEW_TOGGLE_VIEW, b2 && IsFocusedViewAllowed());
     CheckTool(Globals.hwndToolbar, IDT_VIEW_TOGGLE_VIEW, tv);
+    CheckTool(Globals.hwndToolbar, IDT_VIEW_MARKDOWN_PREVIEW, s_bMarkdownPreviewVisible);
 
     int const zoom = NP3_GetZoomPercent();
     CheckTool(Globals.hwndToolbar, IDT_VIEW_ZOOMIN,    (zoom > NP3_DEFAULT_ZOOM));

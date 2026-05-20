@@ -63,6 +63,9 @@
     <ClCompile Include="EditRTF.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="md2rtf.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="Helpers.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -468,6 +471,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="EditRTF.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="md2rtf.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Helpers.h">
