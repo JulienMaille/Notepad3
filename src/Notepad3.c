@@ -157,6 +157,56 @@ static DWORD CALLBACK MarkdownStreamInCallback(DWORD_PTR dwCookie, LPBYTE pbBuff
 }
 
 
+static void _ToggleMarkdownPreview(HWND hwnd) {
+    s_bMarkdownPreviewVisible = !s_bMarkdownPreviewVisible;
+    if (s_bMarkdownPreviewVisible) {
+        Sci_PositionCR len = (Sci_PositionCR)SciCall_GetLength();
+        if (len > 0) {
+            char* text = (char*)malloc(len + 1);
+            if (text) {
+                struct Sci_TextRange tr;
+                tr.chrg.cpMin = 0;
+                tr.chrg.cpMax = (Sci_PositionCR)len;
+                tr.lpstrText = text;
+                SciCall_GetTextRange(&tr);
+
+                char* rtf = ConvertMarkdownToRTF(text, (size_t)len);
+                if (rtf) {
+                    struct MarkdownStreamState state;
+                    state.ptr = rtf;
+                    state.len = strlen(rtf);
+                    EDITSTREAM es = {0};
+                    es.dwCookie = (DWORD_PTR)&state;
+                    es.pfnCallback = MarkdownStreamInCallback;
+                    SendMessage(g_hwndMarkdownPreview, EM_STREAMIN, SF_RTF, (LPARAM)&es);
+
+                    FreeMarkdownRTF(rtf);
+                }
+                free(text);
+            }
+        } else {
+            SETTEXTEX st = {0};
+            st.flags = ST_DEFAULT;
+            st.codepage = CP_UTF8;
+            SendMessage(g_hwndMarkdownPreview, EM_SETTEXTEX, (WPARAM)&st, (LPARAM)"");
+        }
+        ShowWindow(g_hwndEditWindow, SW_HIDE);
+        ShowWindow(g_hwndMarkdownPreview, SW_SHOW);
+        SetFocus(g_hwndMarkdownPreview);
+    } else {
+        ShowWindow(g_hwndMarkdownPreview, SW_HIDE);
+        ShowWindow(g_hwndEditWindow, SW_SHOW);
+        SetFocus(g_hwndEditWindow);
+    }
+    {
+        RECT rc;
+        GetClientRect(Globals.hwndMain, &rc);
+        SendMessage(Globals.hwndMain, WM_SIZE, SIZE_RESTORED, MAKELPARAM(rc.right, rc.bottom));
+    }
+    CheckCmd(GetMenu(hwnd), IDM_VIEW_MARKDOWN_PREVIEW, s_bMarkdownPreviewVisible);
+    UpdateToolbar();
+}
+
 // window positioning
 WININFO   g_IniWinInfo = INIT_WININFO;
 WININFO   g_DefWinInfo = INIT_WININFO;
@@ -3117,7 +3167,7 @@ LRESULT MsgCreate(HWND hwnd, WPARAM wParam,LPARAM lParam)
                            (HMENU)(IDC_EDIT + 1), // Use a different ID
                            hInstance,
                            NULL);
-    SendMessage(g_hwndMarkdownPreview, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(4, 4));
+    SendMessage(g_hwndMarkdownPreview, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(8, 8));
     SendMessage(g_hwndMarkdownPreview, EM_SETTARGETDEVICE, (WPARAM)NULL, 0); // Enable word wrap to window
 
 
@@ -7190,53 +7240,7 @@ static bool _HandleViewAndSettingsCommands(HWND hwnd, UINT umsg, WPARAM wParam, 
         break;
 
     case IDM_VIEW_MARKDOWN_PREVIEW:
-        s_bMarkdownPreviewVisible = !s_bMarkdownPreviewVisible;
-        if (s_bMarkdownPreviewVisible) {
-            Sci_PositionCR len = (Sci_PositionCR)SciCall_GetLength();
-            if (len > 0) {
-                char* text = (char*)malloc(len + 1);
-                if (text) {
-                    struct Sci_TextRange tr;
-                    tr.chrg.cpMin = 0;
-                    tr.chrg.cpMax = (Sci_PositionCR)len;
-                    tr.lpstrText = text;
-                    SciCall_GetTextRange(&tr);
-
-                    char* rtf = ConvertMarkdownToRTF(text, (size_t)len);
-                    if (rtf) {
-                        struct MarkdownStreamState state;
-                        state.ptr = rtf;
-                        state.len = strlen(rtf);
-                        EDITSTREAM es = {0};
-                        es.dwCookie = (DWORD_PTR)&state;
-                        es.pfnCallback = MarkdownStreamInCallback;
-                        SendMessage(g_hwndMarkdownPreview, EM_STREAMIN, SF_RTF, (LPARAM)&es);
-
-                        FreeMarkdownRTF(rtf);
-                    }
-                    free(text);
-                }
-            } else {
-                SETTEXTEX st = {0};
-                st.flags = ST_DEFAULT;
-                st.codepage = CP_UTF8;
-                SendMessage(g_hwndMarkdownPreview, EM_SETTEXTEX, (WPARAM)&st, (LPARAM)"");
-            }
-            ShowWindow(g_hwndEditWindow, SW_HIDE);
-            ShowWindow(g_hwndMarkdownPreview, SW_SHOW);
-            SetFocus(g_hwndMarkdownPreview);
-        } else {
-            ShowWindow(g_hwndMarkdownPreview, SW_HIDE);
-            ShowWindow(g_hwndEditWindow, SW_SHOW);
-            SetFocus(g_hwndEditWindow);
-        }
-        {
-            RECT rc;
-            GetClientRect(Globals.hwndMain, &rc);
-            SendMessage(Globals.hwndMain, WM_SIZE, SIZE_RESTORED, MAKELPARAM(rc.right, rc.bottom));
-        }
-        CheckCmd(GetMenu(hwnd), IDM_VIEW_MARKDOWN_PREVIEW, s_bMarkdownPreviewVisible);
-        UpdateToolbar();
+        _ToggleMarkdownPreview(hwnd);
         break;
 
     case IDM_VIEW_FV_FOLD:

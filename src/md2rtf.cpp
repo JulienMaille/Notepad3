@@ -18,12 +18,22 @@ public:
         std::istringstream iss(markdown);
         std::string line;
 
+        std::string paragraphBuffer;
+
+        auto flushParagraph = [&]() {
+            if (!paragraphBuffer.empty()) {
+                rtf << ParseLine(paragraphBuffer) << "\\par\n";
+                paragraphBuffer.clear();
+            }
+        };
+
         while (std::getline(iss, line)) {
             if (!line.empty() && line.back() == '\r') {
                 line.pop_back();
             }
 
             if (line.size() >= 3 && line.substr(0, 3) == "```") {
+                flushParagraph();
                 inCodeBlock = !inCodeBlock;
                 if (inCodeBlock) {
                     rtf << "\\pard\\sa200\\sl276\\slmult1\\f1\\fs20\\cf2 ";
@@ -43,24 +53,31 @@ public:
                 headerLevel++;
             }
             if (headerLevel > 0 && headerLevel <= 6 && headerLevel < line.size() && line[headerLevel] == ' ') {
+                flushParagraph();
                 int fs = 48 - ((int)headerLevel * 4);
                 rtf << "{\\pard\\sa200\\sl276\\slmult1\\b\\fs" << fs << " " << ParseLine(line.substr(headerLevel + 1)) << "\\par}\n";
                 continue;
             }
 
             if (line.size() >= 2 && (line.substr(0, 2) == "- " || line.substr(0, 2) == "* ")) {
+                flushParagraph();
                 rtf << "{\\pntext\\f0 \\'B7\\tab}{\\*\\pn\\pnlvlblt\\pnf0\\pnindent0{\\pntxtb \\'B7}}";
                 rtf << "\\fi-360\\li360\\sa200\\sl276\\slmult1 " << ParseLine(line.substr(2)) << "\\par\n";
                 continue;
             }
 
             if (line.empty() || line.find_first_not_of(" \t") == std::string::npos) {
+                flushParagraph();
                 rtf << "\\par\n";
             } else {
-                rtf << ParseLine(line) << "\\par\n";
+                if (!paragraphBuffer.empty()) {
+                    paragraphBuffer += " ";
+                }
+                paragraphBuffer += line;
             }
         }
 
+        flushParagraph();
         rtf << "}";
         return rtf.str();
     }
@@ -83,23 +100,43 @@ private:
         return res;
     }
 
+    static bool isWordBoundary(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '(' || c == ')' || c == '[' || c == ']' || c == '{' || c == '}' || c == '.' || c == ',' || c == '!' || c == '?' || c == ';' || c == ':' || c == '"' || c == '\'';
+    }
+
     static std::string ParseLine(const std::string& line) {
         std::string res;
         bool b = false, i = false, s = false, c = false;
         for (size_t pos = 0; pos < line.size(); ++pos) {
+            bool prevBound = (pos == 0) || isWordBoundary(line[pos-1]);
+            bool nextBound1 = (pos + 1 == line.size()) || isWordBoundary(line[pos+1]);
+            bool nextBound2 = (pos + 2 >= line.size()) || isWordBoundary(line[pos+2]);
+
             if (pos + 1 < line.size() && line[pos] == '*' && line[pos+1] == '*') {
                 b = !b;
                 res += b ? "{\\b " : "}";
                 pos++;
             }
             else if (pos + 1 < line.size() && line[pos] == '_' && line[pos+1] == '_') {
-                b = !b;
-                res += b ? "{\\b " : "}";
-                pos++;
+                if (b || (prevBound || nextBound2)) {
+                    b = !b;
+                    res += b ? "{\\b " : "}";
+                    pos++;
+                } else {
+                    res += EscapeRTF(std::string(1, line[pos]));
+                }
             }
-            else if (line[pos] == '*' || line[pos] == '_') {
+            else if (line[pos] == '*') {
                 i = !i;
                 res += i ? "{\\i " : "}";
+            }
+            else if (line[pos] == '_') {
+                if (i || (prevBound || nextBound1)) {
+                    i = !i;
+                    res += i ? "{\\i " : "}";
+                } else {
+                    res += EscapeRTF(std::string(1, line[pos]));
+                }
             }
             else if (pos + 1 < line.size() && line[pos] == '~' && line[pos+1] == '~') {
                 s = !s;
