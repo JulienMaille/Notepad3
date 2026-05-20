@@ -10,7 +10,7 @@ class MarkdownToRTF {
 public:
     static std::string Convert(const std::string& markdown) {
         std::ostringstream rtf;
-        rtf << "{\\rtf1\\ansi\\ansicpg1252\\deff0\\nouicompat{\\fonttbl{\\f0\\fnil\\fcharset0 Calibri;}{\\f1\\fmodern\\fcharset0 Consolas;}}\n";
+        rtf << "{\\rtf1\\ansi\\ansicpg65001\\deff0\\nouicompat{\\fonttbl{\\f0\\fnil\\fcharset0 Calibri;}{\\f1\\fmodern\\fcharset0 Consolas;}}\n";
         rtf << "{\\colortbl ;\\red0\\green0\\blue255;\\red128\\green128\\blue128;}\n";
         rtf << "\\pard\\sa200\\sl276\\slmult1\\f0\\fs22\\lang9\n";
 
@@ -38,12 +38,12 @@ public:
                 continue;
             }
 
-            int headerLevel = 0;
+            size_t headerLevel = 0;
             while (headerLevel < line.size() && line[headerLevel] == '#') {
                 headerLevel++;
             }
             if (headerLevel > 0 && headerLevel <= 6 && headerLevel < line.size() && line[headerLevel] == ' ') {
-                int fs = 48 - (headerLevel * 4);
+                int fs = 48 - ((int)headerLevel * 4);
                 rtf << "{\\pard\\sa200\\sl276\\slmult1\\b\\fs" << fs << " " << ParseLine(line.substr(headerLevel + 1)) << "\\par}\n";
                 continue;
             }

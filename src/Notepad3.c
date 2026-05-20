@@ -7184,17 +7184,17 @@ static bool _HandleViewAndSettingsCommands(HWND hwnd, UINT umsg, WPARAM wParam, 
     case IDM_VIEW_MARKDOWN_PREVIEW:
         s_bMarkdownPreviewVisible = !s_bMarkdownPreviewVisible;
         if (s_bMarkdownPreviewVisible) {
-            DocPos len = SciCall_GetLength();
+            Sci_PositionCR len = (Sci_PositionCR)SciCall_GetLength();
             if (len > 0) {
                 char* text = (char*)malloc(len + 1);
                 if (text) {
                     struct Sci_TextRange tr;
                     tr.chrg.cpMin = 0;
-                    tr.chrg.cpMax = len;
+                    tr.chrg.cpMax = (Sci_PositionCR)len;
                     tr.lpstrText = text;
                     SciCall_GetTextRange(&tr);
 
-                    char* rtf = ConvertMarkdownToRTF(text, len);
+                    char* rtf = ConvertMarkdownToRTF(text, (size_t)len);
                     if (rtf) {
                         struct MarkdownStreamState state;
                         state.ptr = rtf;
