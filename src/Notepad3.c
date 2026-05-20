@@ -3118,6 +3118,8 @@ LRESULT MsgCreate(HWND hwnd, WPARAM wParam,LPARAM lParam)
                            hInstance,
                            NULL);
     SendMessage(g_hwndMarkdownPreview, EM_SETMARGINS, EC_LEFTMARGIN | EC_RIGHTMARGIN, MAKELPARAM(4, 4));
+    SendMessage(g_hwndMarkdownPreview, EM_SETTARGETDEVICE, (WPARAM)NULL, 0); // Enable word wrap to window
+
 
 
     InitScintillaHandle(Globals.hwndEdit);
@@ -3455,6 +3457,12 @@ void CreateBars(HWND hwnd, HINSTANCE hInstance)
     for (int i = 0; i < COUNTOF(s_tbbMainWnd); ++i) {
 
         if (s_tbbMainWnd[i].fsStyle == BTNS_SEP) {
+            continue;
+        }
+
+        if (s_tbbMainWnd[i].idCommand == IDT_VIEW_MARKDOWN_PREVIEW) {
+            s_tbbMainWnd[i].iString = SendMessage(Globals.hwndToolbar, TB_ADDSTRING, 0, (LPARAM)L".md");
+            s_tbbMainWnd[i].fsStyle |= BTNS_AUTOSIZE | BTNS_SHOWTEXT;
             continue;
         }
 
