@@ -11138,7 +11138,7 @@ static void  _UpdateToolbarDelayed()
 
     EnableTool(Globals.hwndToolbar, IDT_VIEW_TOGGLE_VIEW, b2 && IsFocusedViewAllowed());
     CheckTool(Globals.hwndToolbar, IDT_VIEW_TOGGLE_VIEW, tv);
-    bool bIsMarkdown = (SciCall_GetLexer() == SCLEX_MARKDOWN);
+    bool bIsMarkdown = (Style_GetCurrentLexerPtr() == &lexMARKDOWN);
     EnableTool(Globals.hwndToolbar, IDT_VIEW_MARKDOWN_PREVIEW, bIsMarkdown);
     if (!bIsMarkdown && s_bMarkdownPreviewVisible) {
         PostWMCommand(Globals.hwndMain, IDM_VIEW_MARKDOWN_PREVIEW);
