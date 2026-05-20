@@ -286,7 +286,7 @@ static TBBUTTON  s_tbbMainWnd[] = {
     { 0, 0, 0, BTNS_SEP, { 0 }, 0, 0 },
     { 23, IDT_VIEW_TOGGLEFOLDS, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
     { 25, IDT_VIEW_TOGGLE_VIEW, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
-    { 32, IDT_VIEW_MARKDOWN_PREVIEW, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
+    { I_IMAGENONE, IDT_VIEW_MARKDOWN_PREVIEW, TBSTATE_ENABLED, BTNS_BUTTON | BTNS_AUTOSIZE | BTNS_SHOWTEXT, { 0 }, 0, (INT_PTR)L".md" },
     { 0, 0, 0, BTNS_SEP, { 0 }, 0, 0 },
     { 21, IDT_FILE_OPENFAV, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
     { 22, IDT_FILE_ADDTOFAV, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
@@ -3111,7 +3111,7 @@ LRESULT MsgCreate(HWND hwnd, WPARAM wParam,LPARAM lParam)
                            WS_EX_CLIENTEDGE,
                            L"RICHEDIT50W",
                            NULL,
-                           (WS_CHILD | WS_CLIPSIBLINGS | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_READONLY) & ~WS_VISIBLE,
+                           (WS_CHILD | WS_CLIPSIBLINGS | WS_VSCROLL | ES_MULTILINE | ES_READONLY) & ~WS_VISIBLE,
                            0, 0, 0, 0,
                            hwnd,
                            (HMENU)(IDC_EDIT + 1), // Use a different ID
@@ -11138,6 +11138,11 @@ static void  _UpdateToolbarDelayed()
 
     EnableTool(Globals.hwndToolbar, IDT_VIEW_TOGGLE_VIEW, b2 && IsFocusedViewAllowed());
     CheckTool(Globals.hwndToolbar, IDT_VIEW_TOGGLE_VIEW, tv);
+    bool bIsMarkdown = (SciCall_GetLexer() == SCLEX_MARKDOWN);
+    EnableTool(Globals.hwndToolbar, IDT_VIEW_MARKDOWN_PREVIEW, bIsMarkdown);
+    if (!bIsMarkdown && s_bMarkdownPreviewVisible) {
+        PostWMCommand(Globals.hwndMain, IDM_VIEW_MARKDOWN_PREVIEW);
+    }
     CheckTool(Globals.hwndToolbar, IDT_VIEW_MARKDOWN_PREVIEW, s_bMarkdownPreviewVisible);
 
     int const zoom = NP3_GetZoomPercent();
@@ -12161,6 +12166,10 @@ bool FileLoad(const HPATHL hfile_pth, const FileLoadFlags fLoadFlags, const DocP
     }
 
     EditBookmarkResetNavigation();
+
+    if (s_bMarkdownPreviewVisible) {
+        PostWMCommand(Globals.hwndMain, IDM_VIEW_MARKDOWN_PREVIEW);
+    }
 
     if (!bReloadFile) {
         ResetEncryption();
