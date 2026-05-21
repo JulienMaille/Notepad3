@@ -1,4 +1,4 @@
-#include "md2rtf.h"
+#include "Md2Rtf.h"
 #include <windows.h>
 #include <string>
 #include <sstream>
@@ -60,7 +60,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
 
     std::ostringstream rtf;
     rtf << "{\\rtf1\\ansi\\ansicpg65001\\deff0\\nouicompat{\\fonttbl{\\f0\\fnil\\fcharset0 Calibri;}{\\f1\\fmodern\\fcharset0 Consolas;}}\n";
-    rtf << "{\\colortbl ;\\red0\\green0\\blue255;\\red128\\green128\\blue128;}\n";
+    rtf << "{\\colortbl ;\\red0\\green0\\blue255;\\red128\\green128\\blue128;\\red214\\green51\\blue132;\\red240\\green240\\blue240;}\n";
 
     bool paragraphOpen = false;
 
@@ -89,6 +89,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             if (style >= SCE_MARKDOWN_HEADER1 && style <= SCE_MARKDOWN_HEADER6) {
                 headerLevel = style - SCE_MARKDOWN_HEADER1 + 1;
                 if (ch == '#') continue;
+                if (ch == ' ' && j == headerLevel) continue;
             }
             if (style == SCE_MARKDOWN_ULIST_ITEM || style == SCE_MARKDOWN_OLIST_ITEM) {
                 isList = true;
@@ -110,7 +111,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             if (nextB != b) { lineRTF += (nextB ? "{\\b " : "}"); b = nextB; }
             if (nextI != it) { lineRTF += (nextI ? "{\\i " : "}"); it = nextI; }
             if (nextS != s) { lineRTF += (nextS ? "{\\strike " : "}"); s = nextS; }
-            if (nextC != c) { lineRTF += (nextC ? "{\\f1\\cf2 " : "}"); c = nextC; }
+            if (nextC != c) { lineRTF += (nextC ? "{\\f1\\cf3\\highlight4 " : "}"); c = nextC; }
 
             if ((style == SCE_MARKDOWN_STRONG1 || style == SCE_MARKDOWN_STRONG2) && (ch == '*' || ch == '_')) continue;
             if ((style == SCE_MARKDOWN_EM1 || style == SCE_MARKDOWN_EM2) && (ch == '*' || ch == '_')) continue;
@@ -137,7 +138,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
 
         if (isHrule) {
             if (paragraphOpen) { rtf << "\\par\n"; paragraphOpen = false; }
-            rtf << "{\\pard\\brdrb\\brdrs\\brdrw15\\brsp20 \\sa200\\sl276\\slmult1\\f0\\fs22\\lang9 \\par}\n";
+            rtf << "{\\pard\\brdrb\\brdrs\\brdrw15\\brsp20 \\sa200\\sl276\\slmult1\\f0\\fs22\\lang9 ~\\par}\n";
             continue;
         }
 
@@ -160,7 +161,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
 
         if (isList) {
             if (paragraphOpen) { rtf << "\\par\n"; paragraphOpen = false; }
-            rtf << "{\\pard\\li360\\sa200\\sl276\\slmult1\\f0\\fs22 " << lineRTF << "\\par}\n";
+            rtf << "{\\pard\\li360\\sa0\\sl276\\slmult1\\f0\\fs22 " << lineRTF << "\\par}\n";
             continue;
         }
 

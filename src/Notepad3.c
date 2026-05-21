@@ -36,7 +36,7 @@
 #include "Edit.h"
 #include "EditRTF.h"
 #include <richedit.h>
-#include "md2rtf.h"
+#include "Md2Rtf.h"
 #include "Styles.h"
 #include "Dialogs.h"
 #include "crypto/crypto.h"

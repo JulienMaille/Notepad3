@@ -63,7 +63,7 @@
     <ClCompile Include="EditRTF.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="md2rtf.cpp">
+    <ClCompile Include="Md2Rtf.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="Helpers.c">
