@@ -65,8 +65,8 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
     bool paragraphOpen = false;
 
     for (long long i = 0; i < lineCount; ++i) {
-        long long start = SendMessage(hwndSci, SCI_POSITIONFROMLINE, i, 0);
-        long long len = SendMessage(hwndSci, SCI_LINELENGTH, i, 0);
+        long long start = SendMessage(hwndSci, SCI_POSITIONFROMLINE, (WPARAM)i, 0);
+        long long len = SendMessage(hwndSci, SCI_LINELENGTH, (WPARAM)i, 0);
 
         std::string lineRTF = "";
         bool isEmpty = true;
@@ -79,11 +79,11 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
 
         for (long long j = 0; j < len; ++j) {
             long long pos = start + j;
-            char ch = (char)SendMessage(hwndSci, SCI_GETCHARAT, pos, 0);
+            char ch = (char)SendMessage(hwndSci, SCI_GETCHARAT, (WPARAM)pos, 0);
             if (ch == '\r' || ch == '\n') continue;
             isEmpty = false;
 
-            int style = (int)SendMessage(hwndSci, SCI_GETSTYLEAT, pos, 0);
+            int style = (int)SendMessage(hwndSci, SCI_GETSTYLEAT, (WPARAM)pos, 0);
 
             if (style >= SCE_MARKDOWN_HEADER1 && style <= SCE_MARKDOWN_HEADER6) {
                 headerLevel = style - SCE_MARKDOWN_HEADER1 + 1;
