@@ -160,30 +160,16 @@ static DWORD CALLBACK MarkdownStreamInCallback(DWORD_PTR dwCookie, LPBYTE pbBuff
 static void _ToggleMarkdownPreview(HWND hwnd) {
     s_bMarkdownPreviewVisible = !s_bMarkdownPreviewVisible;
     if (s_bMarkdownPreviewVisible) {
-        Sci_PositionCR len = (Sci_PositionCR)SciCall_GetLength();
-        if (len > 0) {
-            char* text = (char*)malloc(len + 1);
-            if (text) {
-                struct Sci_TextRange tr;
-                tr.chrg.cpMin = 0;
-                tr.chrg.cpMax = (Sci_PositionCR)len;
-                tr.lpstrText = text;
-                SciCall_GetTextRange(&tr);
-
-                char* rtf = ConvertMarkdownToRTF(text, (size_t)len);
-                if (rtf) {
-                    struct MarkdownStreamState state;
-                    state.ptr = rtf;
-                    state.len = strlen(rtf);
-                    EDITSTREAM es = {0};
-                    es.dwCookie = (DWORD_PTR)&state;
-                    es.pfnCallback = MarkdownStreamInCallback;
-                    SendMessage(g_hwndMarkdownPreview, EM_STREAMIN, SF_RTF, (LPARAM)&es);
-
-                    FreeMarkdownRTF(rtf);
-                }
-                free(text);
-            }
+        char* rtf = ConvertMarkdownToRTF(g_hwndEditWindow);
+        if (rtf) {
+            struct MarkdownStreamState state;
+            state.ptr = rtf;
+            state.len = strlen(rtf);
+            EDITSTREAM es = {0};
+            es.dwCookie = (DWORD_PTR)&state;
+            es.pfnCallback = MarkdownStreamInCallback;
+            SendMessage(g_hwndMarkdownPreview, EM_STREAMIN, SF_RTF, (LPARAM)&es);
+            FreeMarkdownRTF(rtf);
         } else {
             SETTEXTEX st = {0};
             st.flags = ST_DEFAULT;

@@ -1,11 +1,11 @@
 #pragma once
-#include <stddef.h>
+#include <windows.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-char* ConvertMarkdownToRTF(const char* markdown, size_t len);
+char* ConvertMarkdownToRTF(HWND hwndSci);
 void FreeMarkdownRTF(char* rtf);
 
 #ifdef __cplusplus

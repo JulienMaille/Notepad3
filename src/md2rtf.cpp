@@ -1,4 +1,5 @@
 #include "md2rtf.h"
+#include <windows.h>
 #include <string>
 #include <sstream>
 #include <vector>
@@ -6,163 +7,165 @@
 #include <cstring>
 #include <cstdlib>
 
-class MarkdownToRTF {
-public:
-    static std::string Convert(const std::string& markdown) {
-        std::ostringstream rtf;
-        rtf << "{\\rtf1\\ansi\\ansicpg65001\\deff0\\nouicompat{\\fonttbl{\\f0\\fnil\\fcharset0 Calibri;}{\\f1\\fmodern\\fcharset0 Consolas;}}\n";
-        rtf << "{\\colortbl ;\\red0\\green0\\blue255;\\red128\\green128\\blue128;}\n";
-        rtf << "\\pard\\sa200\\sl276\\slmult1\\f0\\fs22\\lang9\n";
+#define SCI_GETLENGTH 2006
+#define SCI_GETCHARAT 2007
+#define SCI_GETSTYLEAT 2010
+#define SCI_GETLINECOUNT 2154
+#define SCI_POSITIONFROMLINE 2167
+#define SCI_LINELENGTH 2350
 
-        bool inCodeBlock = false;
-        std::istringstream iss(markdown);
-        std::string line;
+#define SCE_MARKDOWN_DEFAULT 0
+#define SCE_MARKDOWN_LINE_BEGIN 1
+#define SCE_MARKDOWN_STRONG1 2
+#define SCE_MARKDOWN_STRONG2 3
+#define SCE_MARKDOWN_EM1 4
+#define SCE_MARKDOWN_EM2 5
+#define SCE_MARKDOWN_HEADER1 6
+#define SCE_MARKDOWN_HEADER2 7
+#define SCE_MARKDOWN_HEADER3 8
+#define SCE_MARKDOWN_HEADER4 9
+#define SCE_MARKDOWN_HEADER5 10
+#define SCE_MARKDOWN_HEADER6 11
+#define SCE_MARKDOWN_PRECHAR 12
+#define SCE_MARKDOWN_ULIST_ITEM 13
+#define SCE_MARKDOWN_OLIST_ITEM 14
+#define SCE_MARKDOWN_BLOCKQUOTE 15
+#define SCE_MARKDOWN_STRIKEOUT 16
+#define SCE_MARKDOWN_HRULE 17
+#define SCE_MARKDOWN_LINK 18
+#define SCE_MARKDOWN_CODE 19
+#define SCE_MARKDOWN_CODE2 20
+#define SCE_MARKDOWN_CODEBK 21
+#define SCE_MARKDOWN_HDRTEXT 22
 
-        std::string paragraphBuffer;
+static std::string EscapeRTF(char c) {
+    std::string res;
+    if (c == '\\' || c == '{' || c == '}') {
+        res += '\\'; res += c;
+    } else if (c < 32 || c > 126) {
+        char buf[10];
+        snprintf(buf, sizeof(buf), "\\'%02x", (unsigned char)c);
+        res += buf;
+    } else {
+        res += c;
+    }
+    return res;
+}
 
-        auto flushParagraph = [&]() {
-            if (!paragraphBuffer.empty()) {
-                rtf << ParseLine(paragraphBuffer) << "\\par\n";
-                paragraphBuffer.clear();
+extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
+    if (!hwndSci) return nullptr;
+
+    long long lineCount = SendMessage(hwndSci, SCI_GETLINECOUNT, 0, 0);
+    if (lineCount <= 0) return nullptr;
+
+    std::ostringstream rtf;
+    rtf << "{\\rtf1\\ansi\\ansicpg65001\\deff0\\nouicompat{\\fonttbl{\\f0\\fnil\\fcharset0 Calibri;}{\\f1\\fmodern\\fcharset0 Consolas;}}\n";
+    rtf << "{\\colortbl ;\\red0\\green0\\blue255;\\red128\\green128\\blue128;}\n";
+
+    bool paragraphOpen = false;
+
+    for (long long i = 0; i < lineCount; ++i) {
+        long long start = SendMessage(hwndSci, SCI_POSITIONFROMLINE, i, 0);
+        long long len = SendMessage(hwndSci, SCI_LINELENGTH, i, 0);
+
+        std::string lineRTF = "";
+        bool isEmpty = true;
+
+        int headerLevel = 0;
+        bool isList = false;
+        bool isCode = false;
+
+        bool b = false, it = false, s = false, c = false;
+
+        for (long long j = 0; j < len; ++j) {
+            long long pos = start + j;
+            char ch = (char)SendMessage(hwndSci, SCI_GETCHARAT, pos, 0);
+            if (ch == '\r' || ch == '\n') continue;
+            isEmpty = false;
+
+            int style = (int)SendMessage(hwndSci, SCI_GETSTYLEAT, pos, 0);
+
+            if (style >= SCE_MARKDOWN_HEADER1 && style <= SCE_MARKDOWN_HEADER6) {
+                headerLevel = style - SCE_MARKDOWN_HEADER1 + 1;
+                if (ch == '#') continue;
             }
-        };
-
-        while (std::getline(iss, line)) {
-            if (!line.empty() && line.back() == '\r') {
-                line.pop_back();
+            if (style == SCE_MARKDOWN_ULIST_ITEM) {
+                isList = true;
+                if (ch == '*' || ch == '-' || ch == '+') continue;
+            }
+            if (style == SCE_MARKDOWN_CODEBK) {
+                isCode = true;
+                if (ch == '`') continue;
             }
 
-            if (line.size() >= 3 && line.substr(0, 3) == "```") {
-                flushParagraph();
-                inCodeBlock = !inCodeBlock;
-                if (inCodeBlock) {
-                    rtf << "\\pard\\sa200\\sl276\\slmult1\\f1\\fs20\\cf2 ";
-                } else {
-                    rtf << "\\par\\pard\\sa200\\sl276\\slmult1\\f0\\fs22\\cf0\n";
-                }
-                continue;
-            }
+            bool nextB = (style == SCE_MARKDOWN_STRONG1 || style == SCE_MARKDOWN_STRONG2);
+            bool nextI = (style == SCE_MARKDOWN_EM1 || style == SCE_MARKDOWN_EM2);
+            bool nextS = (style == SCE_MARKDOWN_STRIKEOUT);
+            bool nextC = (style == SCE_MARKDOWN_CODE || style == SCE_MARKDOWN_CODE2);
 
-            if (inCodeBlock) {
-                rtf << EscapeRTF(line) << "\\line\n";
-                continue;
-            }
+            if (nextB != b) { lineRTF += (nextB ? "{\\b " : "}"); b = nextB; }
+            if (nextI != it) { lineRTF += (nextI ? "{\\i " : "}"); it = nextI; }
+            if (nextS != s) { lineRTF += (nextS ? "{\\strike " : "}"); s = nextS; }
+            if (nextC != c) { lineRTF += (nextC ? "{\\f1\\cf2 " : "}"); c = nextC; }
 
-            size_t headerLevel = 0;
-            while (headerLevel < line.size() && line[headerLevel] == '#') {
-                headerLevel++;
-            }
-            if (headerLevel > 0 && headerLevel <= 6 && headerLevel < line.size() && line[headerLevel] == ' ') {
-                flushParagraph();
-                int fs = 48 - ((int)headerLevel * 4);
-                rtf << "{\\pard\\sa200\\sl276\\slmult1\\b\\fs" << fs << " " << ParseLine(line.substr(headerLevel + 1)) << "\\par}\n";
-                continue;
-            }
+            if ((style == SCE_MARKDOWN_STRONG1 || style == SCE_MARKDOWN_STRONG2) && (ch == '*' || ch == '_')) continue;
+            if ((style == SCE_MARKDOWN_EM1 || style == SCE_MARKDOWN_EM2) && (ch == '*' || ch == '_')) continue;
+            if (style == SCE_MARKDOWN_STRIKEOUT && ch == '~') continue;
+            if ((style == SCE_MARKDOWN_CODE || style == SCE_MARKDOWN_CODE2) && ch == '`') continue;
 
-            if (line.size() >= 2 && (line.substr(0, 2) == "- " || line.substr(0, 2) == "* ")) {
-                flushParagraph();
-                rtf << "{\\pntext\\f0 \\'B7\\tab}{\\*\\pn\\pnlvlblt\\pnf0\\pnindent0{\\pntxtb \\'B7}}";
-                rtf << "\\fi-360\\li360\\sa200\\sl276\\slmult1 " << ParseLine(line.substr(2)) << "\\par\n";
-                continue;
-            }
+            lineRTF += EscapeRTF(ch);
+        }
 
-            if (line.empty() || line.find_first_not_of(" \t") == std::string::npos) {
-                flushParagraph();
+        if (b) lineRTF += "}";
+        if (it) lineRTF += "}";
+        if (s) lineRTF += "}";
+        if (c) lineRTF += "}";
+
+        if (isEmpty) {
+            if (paragraphOpen) {
                 rtf << "\\par\n";
-            } else {
-                if (!paragraphBuffer.empty()) {
-                    paragraphBuffer += " ";
-                }
-                paragraphBuffer += line;
+                paragraphOpen = false;
             }
+            rtf << "\\pard\\sa200\\sl276\\slmult1\\f0\\fs22\\lang9\\par\n";
+            continue;
         }
 
-        flushParagraph();
-        rtf << "}";
-        return rtf.str();
-    }
-
-private:
-    static std::string EscapeRTF(const std::string& text) {
-        std::string res;
-        for (char c : text) {
-            if (c == '\\' || c == '{' || c == '}') {
-                res += '\\';
-                res += c;
-            } else if (c < 32 || c > 126) {
-                char buf[10];
-                snprintf(buf, sizeof(buf), "\\'%02x", (unsigned char)c);
-                res += buf;
-            } else {
-                res += c;
-            }
+        if (headerLevel > 0) {
+            if (paragraphOpen) { rtf << "\\par\n"; paragraphOpen = false; }
+            int fs = 48 - (headerLevel * 4);
+            rtf << "{\\pard\\sa200\\sl276\\slmult1\\b\\fs" << fs << " " << lineRTF << "\\par}\n";
+            continue;
         }
-        return res;
-    }
 
-    static bool isWordBoundary(char c) {
-        return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '(' || c == ')' || c == '[' || c == ']' || c == '{' || c == '}' || c == '.' || c == ',' || c == '!' || c == '?' || c == ';' || c == ':' || c == '"' || c == '\'';
-    }
-
-    static std::string ParseLine(const std::string& line) {
-        std::string res;
-        bool b = false, i = false, s = false, c = false;
-        for (size_t pos = 0; pos < line.size(); ++pos) {
-            bool prevBound = (pos == 0) || isWordBoundary(line[pos-1]);
-            bool nextBound1 = (pos + 1 == line.size()) || isWordBoundary(line[pos+1]);
-            bool nextBound2 = (pos + 2 >= line.size()) || isWordBoundary(line[pos+2]);
-
-            if (pos + 1 < line.size() && line[pos] == '*' && line[pos+1] == '*') {
-                b = !b;
-                res += b ? "{\\b " : "}";
-                pos++;
-            }
-            else if (pos + 1 < line.size() && line[pos] == '_' && line[pos+1] == '_') {
-                if (b || (prevBound || nextBound2)) {
-                    b = !b;
-                    res += b ? "{\\b " : "}";
-                    pos++;
-                } else {
-                    res += EscapeRTF(std::string(1, line[pos]));
-                }
-            }
-            else if (line[pos] == '*') {
-                i = !i;
-                res += i ? "{\\i " : "}";
-            }
-            else if (line[pos] == '_') {
-                if (i || (prevBound || nextBound1)) {
-                    i = !i;
-                    res += i ? "{\\i " : "}";
-                } else {
-                    res += EscapeRTF(std::string(1, line[pos]));
-                }
-            }
-            else if (pos + 1 < line.size() && line[pos] == '~' && line[pos+1] == '~') {
-                s = !s;
-                res += s ? "{\\strike " : "}";
-                pos++;
-            }
-            else if (line[pos] == '`') {
-                c = !c;
-                res += c ? "{\\f1\\cf2 " : "}";
-            }
-            else {
-                res += EscapeRTF(std::string(1, line[pos]));
-            }
+        if (isCode) {
+            if (paragraphOpen) { rtf << "\\par\n"; paragraphOpen = false; }
+            rtf << "{\\pard\\sa200\\sl276\\slmult1\\f1\\fs20\\cf2 " << lineRTF << "\\par}\n";
+            continue;
         }
-        return res;
-    }
-};
 
-extern "C" char* ConvertMarkdownToRTF(const char* markdown, size_t len) {
-    if (!markdown) return nullptr;
-    std::string md(markdown, len);
-    std::string rtf = MarkdownToRTF::Convert(md);
+        if (isList) {
+            if (paragraphOpen) { rtf << "\\par\n"; paragraphOpen = false; }
+            rtf << "{\\pard\\fi-360\\li360\\sa200\\sl276\\slmult1\\f0\\fs22 " << lineRTF << "\\par}\n";
+            continue;
+        }
+
+        if (!paragraphOpen) {
+            rtf << "\\pard\\sa200\\sl276\\slmult1\\f0\\fs22\\lang9 " << lineRTF;
+            paragraphOpen = true;
+        } else {
+            rtf << " " << lineRTF;
+        }
+    }
+
+    if (paragraphOpen) {
+        rtf << "\\par\n";
+    }
+
+    rtf << "}";
 #ifdef _WIN32
-    return _strdup(rtf.c_str());
+    return _strdup(rtf.str().c_str());
 #else
-    return strdup(rtf.c_str());
+    return strdup(rtf.str().c_str());
 #endif
 }
 
