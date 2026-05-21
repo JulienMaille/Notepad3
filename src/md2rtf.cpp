@@ -74,6 +74,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
         int headerLevel = 0;
         bool isList = false;
         bool isCode = false;
+        bool isHrule = false;
 
         bool b = false, it = false, s = false, c = false;
 
@@ -89,13 +90,16 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
                 headerLevel = style - SCE_MARKDOWN_HEADER1 + 1;
                 if (ch == '#') continue;
             }
-            if (style == SCE_MARKDOWN_ULIST_ITEM) {
+            if (style == SCE_MARKDOWN_ULIST_ITEM || style == SCE_MARKDOWN_OLIST_ITEM) {
                 isList = true;
-                if (ch == '*' || ch == '-' || ch == '+') continue;
             }
             if (style == SCE_MARKDOWN_CODEBK) {
                 isCode = true;
                 if (ch == '`') continue;
+            }
+            if (style == SCE_MARKDOWN_HRULE) {
+                isHrule = true;
+                if (ch == '-' || ch == '*' || ch == '_') continue;
             }
 
             bool nextB = (style == SCE_MARKDOWN_STRONG1 || style == SCE_MARKDOWN_STRONG2);
@@ -112,6 +116,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             if ((style == SCE_MARKDOWN_EM1 || style == SCE_MARKDOWN_EM2) && (ch == '*' || ch == '_')) continue;
             if (style == SCE_MARKDOWN_STRIKEOUT && ch == '~') continue;
             if ((style == SCE_MARKDOWN_CODE || style == SCE_MARKDOWN_CODE2) && ch == '`') continue;
+            if (style == SCE_MARKDOWN_HRULE && (ch == '-' || ch == '*' || ch == '_')) continue;
 
             lineRTF += EscapeRTF(ch);
         }
@@ -126,14 +131,24 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
                 rtf << "\\par\n";
                 paragraphOpen = false;
             }
-            rtf << "\\pard\\sa200\\sl276\\slmult1\\f0\\fs22\\lang9\\par\n";
+            // rtf << "\\pard\\sa200\\sl276\\slmult1\\f0\\fs22\\lang9\\par\n";
+            continue;
+        }
+
+        if (isHrule) {
+            if (paragraphOpen) { rtf << "\\par\n"; paragraphOpen = false; }
+            rtf << "{\\pard\\brdrb\\brdrs\\brdrw15\\brsp20 \\sa200\\sl276\\slmult1\\f0\\fs22\\lang9 \\par}\n";
             continue;
         }
 
         if (headerLevel > 0) {
             if (paragraphOpen) { rtf << "\\par\n"; paragraphOpen = false; }
             int fs = 48 - (headerLevel * 4);
-            rtf << "{\\pard\\sa200\\sl276\\slmult1\\b\\fs" << fs << " " << lineRTF << "\\par}\n";
+            if (headerLevel == 1 || headerLevel == 2) {
+                rtf << "{\\pard\\brdrb\\brdrs\\brdrw15\\brsp20\\sa200\\sl276\\slmult1\\b\\fs" << fs << " " << lineRTF << "\\par}\n";
+            } else {
+                rtf << "{\\pard\\sa200\\sl276\\slmult1\\b\\fs" << fs << " " << lineRTF << "\\par}\n";
+            }
             continue;
         }
 
@@ -145,7 +160,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
 
         if (isList) {
             if (paragraphOpen) { rtf << "\\par\n"; paragraphOpen = false; }
-            rtf << "{\\pard\\fi-360\\li360\\sa200\\sl276\\slmult1\\f0\\fs22 " << lineRTF << "\\par}\n";
+            rtf << "{\\pard\\li360\\sa200\\sl276\\slmult1\\f0\\fs22 " << lineRTF << "\\par}\n";
             continue;
         }
 
