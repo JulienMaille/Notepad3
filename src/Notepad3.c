@@ -157,6 +157,9 @@ static DWORD CALLBACK MarkdownStreamInCallback(DWORD_PTR dwCookie, LPBYTE pbBuff
 }
 
 
+static bool s_bMarkdownPreviewVisible = false;
+HWND g_hwndMarkdownPreview = NULL;
+
 static void _ToggleMarkdownPreview(HWND hwnd) {
     s_bMarkdownPreviewVisible = !s_bMarkdownPreviewVisible;
     if (s_bMarkdownPreviewVisible) {
@@ -250,8 +253,6 @@ static DWORD     s_dwLastPasteSeqNo = 0;
 static bool      s_bLastPasteSeqNoValid = false;
 static bool      s_bInMultiEditMode = false;
 static bool      s_bCallTipEscDisabled = false;
-static bool      s_bMarkdownPreviewVisible = false;
-HWND             g_hwndMarkdownPreview = NULL;
 
 static int       s_iInitialLine = 0;
 static int       s_iInitialColumn = 0;
