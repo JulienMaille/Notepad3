@@ -75,6 +75,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
         bool isList = false;
         bool isCode = false;
         bool isHrule = false;
+        bool isInlineCode = false;
 
         bool b = false, it = false, s = false, c = false;
 
@@ -83,6 +84,11 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             char ch = (char)SendMessage(hwndSci, SCI_GETCHARAT, (WPARAM)pos, 0);
             if (ch == '\r' || ch == '\n') continue;
             isEmpty = false;
+
+            if (ch == '`') {
+                isInlineCode = !isInlineCode;
+                continue;
+            }
 
             int style = (int)SendMessage(hwndSci, SCI_GETSTYLEAT, (WPARAM)pos, 0);
 
@@ -106,7 +112,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             bool nextB = (style == SCE_MARKDOWN_STRONG1 || style == SCE_MARKDOWN_STRONG2);
             bool nextI = (style == SCE_MARKDOWN_EM1 || style == SCE_MARKDOWN_EM2);
             bool nextS = (style == SCE_MARKDOWN_STRIKEOUT);
-            bool nextC = (style == SCE_MARKDOWN_CODE || style == SCE_MARKDOWN_CODE2);
+            bool nextC = isInlineCode || (style == SCE_MARKDOWN_CODE || style == SCE_MARKDOWN_CODE2);
 
             if (nextB != b) { lineRTF += (nextB ? "{\\b " : "}"); b = nextB; }
             if (nextI != it) { lineRTF += (nextI ? "{\\i " : "}"); it = nextI; }
@@ -116,7 +122,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             if ((style == SCE_MARKDOWN_STRONG1 || style == SCE_MARKDOWN_STRONG2) && (ch == '*' || ch == '_')) continue;
             if ((style == SCE_MARKDOWN_EM1 || style == SCE_MARKDOWN_EM2) && (ch == '*' || ch == '_')) continue;
             if (style == SCE_MARKDOWN_STRIKEOUT && ch == '~') continue;
-            if ((style == SCE_MARKDOWN_CODE || style == SCE_MARKDOWN_CODE2) && ch == '`') continue;
+
             if (style == SCE_MARKDOWN_HRULE && (ch == '-' || ch == '*' || ch == '_')) continue;
 
             lineRTF += EscapeRTF(ch);
@@ -137,13 +143,13 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
         }
 
         if (isHrule) {
-            if (paragraphOpen) { rtf << "\\par\n"; paragraphOpen = false; }
-            rtf << "{\\pard\\brdrb\\brdrs\\brdrw15\\brsp20 \\sa200\\sl276\\slmult1\\f0\\fs22\\lang9 ~\\par}\n";
+            if (paragraphOpen) { rtf << "{\\highlight0\\cf0\\f0\\fs22 \\~}\\par\n"; paragraphOpen = false; }
+            rtf << "{\\pard\\sa200\\sl276\\slmult1\\f0\\fs22\\lang9\\qc \\strike \\emdash \\emdash \\emdash \\emdash \\emdash \\emdash \\emdash \\emdash \\emdash \\emdash \\par}\n";
             continue;
         }
 
         if (headerLevel > 0) {
-            if (paragraphOpen) { rtf << "\\par\n"; paragraphOpen = false; }
+            if (paragraphOpen) { rtf << "{\\highlight0\\cf0\\f0\\fs22 \\~}\\par\n"; paragraphOpen = false; }
             int fs = 48 - (headerLevel * 4);
             if (headerLevel == 1 || headerLevel == 2) {
                 rtf << "{\\pard\\brdrb\\brdrs\\brdrw15\\brsp20\\sa200\\sl276\\slmult1\\b\\fs" << fs << " " << lineRTF << "\\par}\n";
@@ -154,13 +160,13 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
         }
 
         if (isCode) {
-            if (paragraphOpen) { rtf << "\\par\n"; paragraphOpen = false; }
+            if (paragraphOpen) { rtf << "{\\highlight0\\cf0\\f0\\fs22 \\~}\\par\n"; paragraphOpen = false; }
             rtf << "{\\pard\\sa200\\sl276\\slmult1\\f1\\fs20\\cf2 " << lineRTF << "\\par}\n";
             continue;
         }
 
         if (isList) {
-            if (paragraphOpen) { rtf << "\\par\n"; paragraphOpen = false; }
+            if (paragraphOpen) { rtf << "{\\highlight0\\cf0\\f0\\fs22 \\~}\\par\n"; paragraphOpen = false; }
             rtf << "{\\pard\\li360\\sa0\\sl276\\slmult1\\f0\\fs22 " << lineRTF << "\\par}\n";
             continue;
         }
