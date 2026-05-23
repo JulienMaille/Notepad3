@@ -135,7 +135,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
 
         if (isEmpty) {
             if (paragraphOpen) {
-                rtf << "\\par\n";
+                rtf << "{\\highlight0\\cf0\\f0\\fs22  }\\par\n";
                 paragraphOpen = false;
             }
             // rtf << "\\pard\\sa200\\f0\\fs22\\lang9\\par\n";
@@ -180,7 +180,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
     }
 
     if (paragraphOpen) {
-        rtf << "\\par\n";
+                rtf << "{\\highlight0\\cf0\\f0\\fs22  }\\par\n";
     }
 
     rtf << "}";
