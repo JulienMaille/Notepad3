@@ -80,10 +80,33 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
 
         bool b = false, it = false, s = false, c = false;
 
+        bool isCodeBlockLine = false;
+        for (long long j = 0; j < len; ++j) {
+            int st = (int)SendMessage(hwndSci, SCI_GETSTYLEAT, (WPARAM)(start + j), 0);
+            if (st == SCE_MARKDOWN_CODEBK) {
+                isCodeBlockLine = true;
+                break;
+            }
+        }
+
+        bool leadingSpace = !isCodeBlockLine;
+        int leadingSpacesCount = 0;
+
         for (long long j = 0; j < len; ++j) {
             long long pos = start + j;
             char ch = (char)SendMessage(hwndSci, SCI_GETCHARAT, (WPARAM)pos, 0);
             if (ch == '\r' || ch == '\n') continue;
+
+            if (leadingSpace) {
+                if (ch == ' ') {
+                    leadingSpacesCount += 1;
+                    continue;
+                } else if (ch == '\t') {
+                    leadingSpacesCount += 4;
+                    continue;
+                }
+            }
+            leadingSpace = false;
             isEmpty = false;
 
             if (ch == '`') {
@@ -118,7 +141,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             if (nextB != b) { lineRTF += (nextB ? "\\b " : "\\b0 "); b = nextB; }
             if (nextI != it) { lineRTF += (nextI ? "\\i " : "\\i0 "); it = nextI; }
             if (nextS != s) { lineRTF += (nextS ? "\\strike " : "\\strike0 "); s = nextS; }
-            if (nextC != c) { lineRTF += (nextC ? "\\f1\\cf3\\highlight4 " : "\\highlight0\\cf0\\f0 "); c = nextC; }
+            if (nextC != c) { lineRTF += (nextC ? "\\f1\\fs19\\cf3\\highlight4 " : "\\highlight0\\cf0\\f0\\fs22 "); c = nextC; }
 
             if ((style == SCE_MARKDOWN_STRONG1 || style == SCE_MARKDOWN_STRONG2) && (ch == '*' || ch == '_')) continue;
             if ((style == SCE_MARKDOWN_EM1 || style == SCE_MARKDOWN_EM2) && (ch == '*' || ch == '_')) continue;
@@ -168,22 +191,24 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             continue;
         }
 
+        int listIndent = 360 + (leadingSpacesCount / 2) * 360;
         if (isList) {
             inListBlock = true;
             if (paragraphOpen) { rtf << "\\highlight0\\cf0\\f0\\fs22\\par\n"; paragraphOpen = false; }
-            rtf << "{\\pard\\li360\\sa0\\f0\\fs22 " << lineRTF << "\\par}\n";
+            rtf << "{\\pard\\li" << listIndent << "\\sa200\\f0\\fs22\\lang9 " << lineRTF;
+            paragraphOpen = true;
             continue;
         }
 
         if (!paragraphOpen) {
             if (inListBlock) {
-                rtf << "{\\pard\\li360\\sa200\\f0\\fs22\\lang9 " << lineRTF;
+                rtf << "{\\pard\\li" << listIndent << "\\sa200\\f0\\fs22\\lang9 " << lineRTF;
             } else {
                 rtf << "{\\pard\\sa200\\f0\\fs22\\lang9 " << lineRTF;
             }
             paragraphOpen = true;
         } else {
-            rtf << " " << lineRTF;
+            rtf << "\\line " << lineRTF;
         }
     }
 
