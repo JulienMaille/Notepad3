@@ -63,6 +63,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
     rtf << "{\\colortbl ;\\red0\\green0\\blue255;\\red128\\green128\\blue128;\\red214\\green51\\blue132;\\red240\\green240\\blue240;}\n";
 
     bool paragraphOpen = false;
+    bool inListBlock = false;
 
     for (long long i = 0; i < lineCount; ++i) {
         long long start = SendMessage(hwndSci, SCI_POSITIONFROMLINE, (WPARAM)i, 0);
@@ -143,12 +144,14 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
         }
 
         if (isHrule) {
+            inListBlock = false;
             if (paragraphOpen) { rtf << "{\\highlight0\\cf0\\f0\\fs22  }\\par\n"; paragraphOpen = false; }
-            rtf << "{\\pard\\sa200\\f0\\fs22\\lang9\\qc \\strike \\emdash \\emdash \\emdash \\emdash \\emdash \\emdash \\emdash \\emdash \\emdash \\emdash \\par}\n";
+            rtf << "{\\pard\\brdrb\\brdrs\\brdrw15\\brsp20\\sa200\\f0\\fs22\\lang9  \\par}\n";
             continue;
         }
 
         if (headerLevel > 0) {
+            inListBlock = false;
             if (paragraphOpen) { rtf << "{\\highlight0\\cf0\\f0\\fs22  }\\par\n"; paragraphOpen = false; }
             int fs = 48 - (headerLevel * 4);
             if (headerLevel == 1 || headerLevel == 2) {
@@ -166,13 +169,18 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
         }
 
         if (isList) {
+            inListBlock = true;
             if (paragraphOpen) { rtf << "{\\highlight0\\cf0\\f0\\fs22  }\\par\n"; paragraphOpen = false; }
             rtf << "{\\pard\\li360\\sa0\\f0\\fs22 " << lineRTF << "\\par}\n";
             continue;
         }
 
         if (!paragraphOpen) {
-            rtf << "\\pard\\sa200\\f0\\fs22\\lang9 " << lineRTF;
+            if (inListBlock) {
+                rtf << "{\\pard\\li360\\sa200\\f0\\fs22\\lang9 " << lineRTF;
+            } else {
+                rtf << "{\\pard\\sa200\\f0\\fs22\\lang9 " << lineRTF;
+            }
             paragraphOpen = true;
         } else {
             rtf << " " << lineRTF;
