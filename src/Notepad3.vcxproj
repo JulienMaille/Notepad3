@@ -1184,7 +1184,7 @@
     <ClInclude Include="Dlapi.h" />
     <ClInclude Include="Edit.h" />
     <ClInclude Include="EditRTF.h" />
-    <ClInclude Include="md2rtf.h" />
+    <ClInclude Include="Md2Rtf.h" />
     <ClInclude Include="Encoding.h" />
     <ClInclude Include="Helpers.h" />
     <ClInclude Include="MuiLanguage.h" />

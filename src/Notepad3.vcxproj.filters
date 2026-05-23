@@ -473,7 +473,7 @@
     <ClInclude Include="EditRTF.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="md2rtf.h">
+    <ClInclude Include="Md2Rtf.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Helpers.h">

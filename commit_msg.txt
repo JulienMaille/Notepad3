@@ -1,0 +1,7 @@
+Fix markdown preview bugs and cleanup garbage files
+
+* Fixed backticks inside bold by correctly tracking multiple styles at once.
+* Fixed inline code block line height bleeding into subsequent lines by manually emitting \highlight0 and \cf0 on \par.
+* Fixed HRULE lines showing properly with a simple long underscore since RichEdit \brdrb has mixed support without complex borders.
+* Cleaned up and removed test scripts (.py, .cpp) from the root.
+* Fixed case mismatch in Notepad3.vcxproj for Md2Rtf.h.
