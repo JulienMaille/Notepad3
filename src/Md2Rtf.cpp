@@ -56,6 +56,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
 
     bool paragraphOpen = false;
     bool inListBlock = false;
+    bool inLinkUrl = false;
 
     for (long long i = 0; i < lineCount; ++i) {
         long long start = SendMessage(hwndSci, SCI_POSITIONFROMLINE, (WPARAM)i, 0);
@@ -71,6 +72,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
 
 
         bool b = false, it = false, s = false, c = false, l = false;
+
 
         bool isCodeBlockLine = false;
         for (long long j = 0; j < len; ++j) {
@@ -107,10 +109,22 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             // Actually, showing the backtick in the preview is fine or we can hide it.
             // Many previews hide the markdown syntax. We can hide it.
             int style = GetStyleAt(pos);
-            if ((style == SCE_MARKDOWN_CODE || style == SCE_MARKDOWN_CODE2) && ch == '`') {
-                // To hide the backtick in inline code
-                continue;
+
+            bool hideChar = false;
+            if (style == SCE_MARKDOWN_LINK) {
+                if (ch == '[') hideChar = true;
+                else if (ch == ']') hideChar = true;
+                else if (ch == '(') { inLinkUrl = true; hideChar = true; }
+                else if (ch == ')') { inLinkUrl = false; hideChar = true; }
+                else if (inLinkUrl) hideChar = true;
+            } else {
+                inLinkUrl = false;
             }
+
+            if ((style == SCE_MARKDOWN_CODE || style == SCE_MARKDOWN_CODE2) && ch == '`') {
+                hideChar = true;
+            }
+
 
             if (style >= SCE_MARKDOWN_HEADER1 && style <= SCE_MARKDOWN_HEADER6) {
                 headerLevel = style - SCE_MARKDOWN_HEADER1 + 1;
@@ -176,7 +190,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
 
             if (style == SCE_MARKDOWN_HRULE && (ch == '-' || ch == '*' || ch == '_')) continue;
 
-            lineRTF += EscapeRTF(ch);
+            if (!hideChar) { lineRTF += EscapeRTF(ch); }
         }
 
         if (b) { lineRTF += "\\b0 "; }
