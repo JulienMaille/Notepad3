@@ -76,7 +76,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
         bool isList = false;
         bool isCode = false;
         bool isHrule = false;
-        bool isInlineCode = false;
+
 
         bool b = false, it = false, s = false, c = false;
 
@@ -109,8 +109,13 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             leadingSpace = false;
             isEmpty = false;
 
-            if (ch == '`') {
-                isInlineCode = !isInlineCode;
+            // Remove manual isInlineCode toggle, let Scintilla lexer handle SCE_MARKDOWN_CODE
+            // But we might want to skip the backtick character if it's the inline code marker.
+            // If style is SCE_MARKDOWN_CODE and ch == '`', should we skip it?
+            // Actually, showing the backtick in the preview is fine or we can hide it.
+            // Many previews hide the markdown syntax. We can hide it.
+            if ((style == SCE_MARKDOWN_CODE || style == SCE_MARKDOWN_CODE2) && ch == '`') {
+                // To hide the backtick in inline code
                 continue;
             }
 
@@ -136,12 +141,12 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             bool nextB = (style == SCE_MARKDOWN_STRONG1 || style == SCE_MARKDOWN_STRONG2);
             bool nextI = (style == SCE_MARKDOWN_EM1 || style == SCE_MARKDOWN_EM2);
             bool nextS = (style == SCE_MARKDOWN_STRIKEOUT);
-            bool nextC = isInlineCode || (style == SCE_MARKDOWN_CODE || style == SCE_MARKDOWN_CODE2);
+            bool nextC = (style == SCE_MARKDOWN_CODE || style == SCE_MARKDOWN_CODE2);
 
             if (nextB != b) { lineRTF += (nextB ? "\\b " : "\\b0 "); b = nextB; }
             if (nextI != it) { lineRTF += (nextI ? "\\i " : "\\i0 "); it = nextI; }
             if (nextS != s) { lineRTF += (nextS ? "\\strike " : "\\strike0 "); s = nextS; }
-            if (nextC != c) { lineRTF += (nextC ? "\\f1\\fs19\\cf3\\highlight4 " : "\\highlight0\\cf0\\f0\\fs22 "); c = nextC; }
+            if (nextC != c) { lineRTF += (nextC ? "\\f1\\fs20\\cf3\\chcbpat4 " : "\\chcbpat0\\cf0\\f0\\fs22 "); c = nextC; }
 
             if ((style == SCE_MARKDOWN_STRONG1 || style == SCE_MARKDOWN_STRONG2) && (ch == '*' || ch == '_')) continue;
             if ((style == SCE_MARKDOWN_EM1 || style == SCE_MARKDOWN_EM2) && (ch == '*' || ch == '_')) continue;
@@ -155,11 +160,11 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
         if (b) { lineRTF += "\\b0 "; }
         if (it) { lineRTF += "\\i0 "; }
         if (s) { lineRTF += "\\strike0 "; }
-        if (c) { lineRTF += "\\highlight0\\cf0\\f0 "; }
+        if (c) { lineRTF += "\\chcbpat0\\cf0\\f0 "; }
 
         if (isEmpty) {
             if (paragraphOpen) {
-                rtf << "\\highlight0\\cf0\\f0\\fs22\\par\n";
+                rtf << "\\chcbpat0\\cf0\\f0\\fs22\\par\n";
                 paragraphOpen = false;
             }
             // rtf << "\\pard\\sa200\\f0\\fs22\\lang9\\par\n";
@@ -168,43 +173,43 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
 
         if (isHrule) {
             inListBlock = false;
-            if (paragraphOpen) { rtf << "\\highlight0\\cf0\\f0\\fs22\\par\n"; paragraphOpen = false; }
-            rtf << "{\\pard\\sa200\\f0\\fs22\\cf2 ________________________________________________________________________________\\par}\n";
+            if (paragraphOpen) { rtf << "\\chcbpat0\\cf0\\f0\\fs22\\par\n"; paragraphOpen = false; }
+            rtf << "\\pard\\sa200\\f0\\fs22\\cf2 ________________________________________________________________________________\\par\n";
             continue;
         }
 
         if (headerLevel > 0) {
             inListBlock = false;
-            if (paragraphOpen) { rtf << "\\highlight0\\cf0\\f0\\fs22\\par\n"; paragraphOpen = false; }
+            if (paragraphOpen) { rtf << "\\chcbpat0\\cf0\\f0\\fs22\\par\n"; paragraphOpen = false; }
             int fs = 48 - (headerLevel * 4);
             if (headerLevel == 1 || headerLevel == 2) {
-                rtf << "{\\pard\\brdrb\\brdrs\\brdrw15\\brsp20\\sa200\\b\\fs" << fs << " " << lineRTF << "\\par}\n";
+                rtf << "\\pard\\brdrb\\brdrs\\brdrw15\\brsp20\\sa200\\b\\fs" << fs << " " << lineRTF << "\\par\n";
             } else {
-                rtf << "{\\pard\\sa200\\b\\fs" << fs << " " << lineRTF << "\\par}\n";
+                rtf << "\\pard\\sa200\\b\\fs" << fs << " " << lineRTF << "\\par\n";
             }
             continue;
         }
 
         if (isCode) {
-            if (paragraphOpen) { rtf << "\\highlight0\\cf0\\f0\\fs22\\par\n"; paragraphOpen = false; }
-            rtf << "{\\pard\\sa200\\f1\\fs20\\cf2 " << lineRTF << "\\par}\n";
+            if (paragraphOpen) { rtf << "\\chcbpat0\\cf0\\f0\\fs22\\par\n"; paragraphOpen = false; }
+            rtf << "\\pard\\sa200\\f1\\fs20\\cf2 " << lineRTF << "\\par\n";
             continue;
         }
 
         int listIndent = 360 + (leadingSpacesCount / 2) * 360;
         if (isList) {
             inListBlock = true;
-            if (paragraphOpen) { rtf << "\\highlight0\\cf0\\f0\\fs22\\par\n"; paragraphOpen = false; }
-            rtf << "{\\pard\\li" << listIndent << "\\sa200\\f0\\fs22\\lang9 " << lineRTF;
+            if (paragraphOpen) { rtf << "\\chcbpat0\\cf0\\f0\\fs22\\par\n"; paragraphOpen = false; }
+            rtf << "\\pard\\li" << listIndent << "\\sa200\\f0\\fs22\\lang9 " << lineRTF;
             paragraphOpen = true;
             continue;
         }
 
         if (!paragraphOpen) {
             if (inListBlock) {
-                rtf << "{\\pard\\li" << listIndent << "\\sa200\\f0\\fs22\\lang9 " << lineRTF;
+                rtf << "\\pard\\li" << listIndent << "\\sa200\\f0\\fs22\\lang9 " << lineRTF;
             } else {
-                rtf << "{\\pard\\sa200\\f0\\fs22\\lang9 " << lineRTF;
+                rtf << "\\pard\\sa200\\f0\\fs22\\lang9 " << lineRTF;
             }
             paragraphOpen = true;
         } else {
@@ -213,7 +218,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
     }
 
     if (paragraphOpen) {
-                rtf << "\\highlight0\\cf0\\f0\\fs22\\par\n";
+                rtf << "\\chcbpat0\\cf0\\f0\\fs22\\par\n";
     }
 
     rtf << "}";
