@@ -6,37 +6,9 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include "Scintilla.h"
+#include "SciLexer.h"
 
-#define SCI_GETLENGTH 2006
-#define SCI_GETCHARAT 2007
-#define SCI_GETSTYLEAT 2010
-#define SCI_GETLINECOUNT 2154
-#define SCI_POSITIONFROMLINE 2167
-#define SCI_LINELENGTH 2350
-
-#define SCE_MARKDOWN_DEFAULT 0
-#define SCE_MARKDOWN_LINE_BEGIN 1
-#define SCE_MARKDOWN_STRONG1 2
-#define SCE_MARKDOWN_STRONG2 3
-#define SCE_MARKDOWN_EM1 4
-#define SCE_MARKDOWN_EM2 5
-#define SCE_MARKDOWN_HEADER1 6
-#define SCE_MARKDOWN_HEADER2 7
-#define SCE_MARKDOWN_HEADER3 8
-#define SCE_MARKDOWN_HEADER4 9
-#define SCE_MARKDOWN_HEADER5 10
-#define SCE_MARKDOWN_HEADER6 11
-#define SCE_MARKDOWN_PRECHAR 12
-#define SCE_MARKDOWN_ULIST_ITEM 13
-#define SCE_MARKDOWN_OLIST_ITEM 14
-#define SCE_MARKDOWN_BLOCKQUOTE 15
-#define SCE_MARKDOWN_STRIKEOUT 16
-#define SCE_MARKDOWN_HRULE 17
-#define SCE_MARKDOWN_LINK 18
-#define SCE_MARKDOWN_CODE 19
-#define SCE_MARKDOWN_CODE2 20
-#define SCE_MARKDOWN_CODEBK 21
-#define SCE_MARKDOWN_HDRTEXT 22
 
 static std::string EscapeRTF(char c) {
     std::string res;
@@ -55,8 +27,28 @@ static std::string EscapeRTF(char c) {
 extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
     if (!hwndSci) return nullptr;
 
+    long long length = SendMessage(hwndSci, SCI_GETLENGTH, 0, 0);
+    if (length <= 0) return nullptr;
+
+    // Force lexing of the entire document to ensure styles are available
+    SendMessage(hwndSci, SCI_COLOURISE, 0, -1);
+
     long long lineCount = SendMessage(hwndSci, SCI_GETLINECOUNT, 0, 0);
     if (lineCount <= 0) return nullptr;
+
+    std::vector<char> styledText(length * 2 + 2, 0);
+    Sci_TextRange tr;
+    tr.chrg.cpMin = 0;
+    tr.chrg.cpMax = length;
+    tr.lpstrText = styledText.data();
+    SendMessage(hwndSci, SCI_GETSTYLEDTEXT, 0, (LPARAM)&tr);
+
+    auto GetCharAt = [&](long long pos) -> char {
+        return styledText[pos * 2];
+    };
+    auto GetStyleAt = [&](long long pos) -> int {
+        return (unsigned char)styledText[pos * 2 + 1];
+    };
 
     std::ostringstream rtf;
     rtf << "{\\rtf1\\ansi\\ansicpg65001\\deff0\\nouicompat{\\fonttbl{\\f0\\fnil\\fcharset0 Calibri;}{\\f1\\fmodern\\fcharset0 Consolas;}}\n";
@@ -82,7 +74,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
 
         bool isCodeBlockLine = false;
         for (long long j = 0; j < len; ++j) {
-            int st = (int)SendMessage(hwndSci, SCI_GETSTYLEAT, (WPARAM)(start + j), 0);
+            int st = GetStyleAt(start + j);
             if (st == SCE_MARKDOWN_CODEBK) {
                 isCodeBlockLine = true;
                 break;
@@ -94,7 +86,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
 
         for (long long j = 0; j < len; ++j) {
             long long pos = start + j;
-            char ch = (char)SendMessage(hwndSci, SCI_GETCHARAT, (WPARAM)pos, 0);
+            char ch = GetCharAt(pos);
             if (ch == '\r' || ch == '\n') continue;
 
             if (leadingSpace) {
@@ -114,17 +106,45 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             // If style is SCE_MARKDOWN_CODE and ch == '`', should we skip it?
             // Actually, showing the backtick in the preview is fine or we can hide it.
             // Many previews hide the markdown syntax. We can hide it.
+            int style = GetStyleAt(pos);
             if ((style == SCE_MARKDOWN_CODE || style == SCE_MARKDOWN_CODE2) && ch == '`') {
                 // To hide the backtick in inline code
                 continue;
             }
 
-            int style = (int)SendMessage(hwndSci, SCI_GETSTYLEAT, (WPARAM)pos, 0);
-
             if (style >= SCE_MARKDOWN_HEADER1 && style <= SCE_MARKDOWN_HEADER6) {
                 headerLevel = style - SCE_MARKDOWN_HEADER1 + 1;
                 if (ch == '#') continue;
                 if (ch == ' ' && j == headerLevel) continue;
+            }
+            if (style == SCE_MARKDOWN_ULIST_ITEM || style == SCE_MARKDOWN_OLIST_ITEM) {
+                isList = true;
+            }
+            // Fallback manual detection for sub-lists that the lexer might miss
+            if (lineRTF.empty() && (ch == '-' || ch == '*' || ch == '+')) {
+                if (j + 1 < len) {
+                    char nextCh = GetCharAt(pos + 1);
+                    if (nextCh == ' ') {
+                        isList = true;
+                    }
+                }
+            }
+            if (lineRTF.empty() && ch >= '0' && ch <= '9') {
+                // Peek forward to see if it's "1. "
+                for (long long k = 1; j + k < len && k < 5; ++k) {
+                    char nextCh = GetCharAt(pos + k);
+                    if (nextCh == '.') {
+                        if (j + k + 1 < len) {
+                            char spaceCh = GetCharAt(pos + k + 1);
+                            if (spaceCh == ' ') {
+                                isList = true;
+                            }
+                        }
+                        break;
+                    } else if (nextCh < '0' || nextCh > '9') {
+                        break;
+                    }
+                }
             }
             if (style == SCE_MARKDOWN_ULIST_ITEM || style == SCE_MARKDOWN_OLIST_ITEM) {
                 isList = true;
