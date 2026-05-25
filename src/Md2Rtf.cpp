@@ -70,7 +70,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
         bool isHrule = false;
 
 
-        bool b = false, it = false, s = false, c = false;
+        bool b = false, it = false, s = false, c = false, l = false;
 
         bool isCodeBlockLine = false;
         for (long long j = 0; j < len; ++j) {
@@ -162,11 +162,13 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             bool nextI = (style == SCE_MARKDOWN_EM1 || style == SCE_MARKDOWN_EM2);
             bool nextS = (style == SCE_MARKDOWN_STRIKEOUT);
             bool nextC = (style == SCE_MARKDOWN_CODE || style == SCE_MARKDOWN_CODE2);
+            bool nextL = (style == SCE_MARKDOWN_LINK);
 
             if (nextB != b) { lineRTF += (nextB ? "\\b " : "\\b0 "); b = nextB; }
             if (nextI != it) { lineRTF += (nextI ? "\\i " : "\\i0 "); it = nextI; }
             if (nextS != s) { lineRTF += (nextS ? "\\strike " : "\\strike0 "); s = nextS; }
             if (nextC != c) { lineRTF += (nextC ? "\\f1\\fs20\\cf3\\chcbpat4 " : "\\chcbpat0\\cf0\\f0\\fs22 "); c = nextC; }
+            if (nextL != l) { lineRTF += (nextL ? "\\cf1\\ul " : "\\ulnone\\cf0 "); l = nextL; }
 
             if ((style == SCE_MARKDOWN_STRONG1 || style == SCE_MARKDOWN_STRONG2) && (ch == '*' || ch == '_')) continue;
             if ((style == SCE_MARKDOWN_EM1 || style == SCE_MARKDOWN_EM2) && (ch == '*' || ch == '_')) continue;
@@ -181,6 +183,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
         if (it) { lineRTF += "\\i0 "; }
         if (s) { lineRTF += "\\strike0 "; }
         if (c) { lineRTF += "\\chcbpat0\\cf0\\f0 "; }
+        if (l) { lineRTF += "\\ulnone\\cf0 "; }
 
         if (isEmpty) {
             if (paragraphOpen) {
@@ -194,7 +197,7 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
         if (isHrule) {
             inListBlock = false;
             if (paragraphOpen) { rtf << "\\chcbpat0\\cf0\\f0\\fs22\\par\n"; paragraphOpen = false; }
-            rtf << "\\pard\\sa200\\f0\\fs22\\cf2 ________________________________________________________________________________\\par\n";
+            rtf << "\\pard\\sa200\\cf2\\f0\\fs22 ________________________________________________________________________________\\cf0\\par\n";
             continue;
         }
 
@@ -203,16 +206,16 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
             if (paragraphOpen) { rtf << "\\chcbpat0\\cf0\\f0\\fs22\\par\n"; paragraphOpen = false; }
             int fs = 48 - (headerLevel * 4);
             if (headerLevel == 1 || headerLevel == 2) {
-                rtf << "\\pard\\brdrb\\brdrs\\brdrw15\\brsp20\\sa200\\b\\fs" << fs << " " << lineRTF << "\\par\n";
+                rtf << "\\pard\\brdrb\\brdrs\\brdrw15\\brsp20\\sa200\\cf0\\b\\fs" << fs << " " << lineRTF << "\\par\n";
             } else {
-                rtf << "\\pard\\sa200\\b\\fs" << fs << " " << lineRTF << "\\par\n";
+                rtf << "\\pard\\sa200\\cf0\\b\\fs" << fs << " " << lineRTF << "\\par\n";
             }
             continue;
         }
 
         if (isCode) {
             if (paragraphOpen) { rtf << "\\chcbpat0\\cf0\\f0\\fs22\\par\n"; paragraphOpen = false; }
-            rtf << "\\pard\\sa200\\f1\\fs20\\cf2 " << lineRTF << "\\par\n";
+            rtf << "\\pard\\sa200\\cf2\\f1\\fs20 " << lineRTF << "\\cf0\\par\n";
             continue;
         }
 
@@ -220,16 +223,16 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
         if (isList) {
             inListBlock = true;
             if (paragraphOpen) { rtf << "\\chcbpat0\\cf0\\f0\\fs22\\par\n"; paragraphOpen = false; }
-            rtf << "\\pard\\li" << listIndent << "\\sa200\\f0\\fs22\\lang9 " << lineRTF;
+            rtf << "\\pard\\li" << listIndent << "\\sa200\\cf0\\f0\\fs22\\lang9 " << lineRTF;
             paragraphOpen = true;
             continue;
         }
 
         if (!paragraphOpen) {
             if (inListBlock) {
-                rtf << "\\pard\\li" << listIndent << "\\sa200\\f0\\fs22\\lang9 " << lineRTF;
+                rtf << "\\pard\\li" << listIndent << "\\sa200\\cf0\\f0\\fs22\\lang9 " << lineRTF;
             } else {
-                rtf << "\\pard\\sa200\\f0\\fs22\\lang9 " << lineRTF;
+                rtf << "\\pard\\sa200\\cf0\\f0\\fs22\\lang9 " << lineRTF;
             }
             paragraphOpen = true;
         } else {
