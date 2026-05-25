@@ -36,18 +36,18 @@ extern "C" char* ConvertMarkdownToRTF(HWND hwndSci) {
     long long lineCount = SendMessage(hwndSci, SCI_GETLINECOUNT, 0, 0);
     if (lineCount <= 0) return nullptr;
 
-    std::vector<char> styledText(length * 2 + 2, 0);
+    std::vector<char> styledText(static_cast<size_t>(length) * 2 + 2, 0);
     Sci_TextRange tr;
     tr.chrg.cpMin = 0;
-    tr.chrg.cpMax = length;
+    tr.chrg.cpMax = static_cast<Sci_PositionCR>(length);
     tr.lpstrText = styledText.data();
     SendMessage(hwndSci, SCI_GETSTYLEDTEXT, 0, (LPARAM)&tr);
 
     auto GetCharAt = [&](long long pos) -> char {
-        return styledText[pos * 2];
+        return styledText[static_cast<size_t>(pos) * 2];
     };
     auto GetStyleAt = [&](long long pos) -> int {
-        return (unsigned char)styledText[pos * 2 + 1];
+        return (unsigned char)styledText[static_cast<size_t>(pos) * 2 + 1];
     };
 
     std::ostringstream rtf;
