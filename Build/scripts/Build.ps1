@@ -15,8 +15,14 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RepoRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
+$ScriptDir = $PSScriptRoot
+if (-not $ScriptDir -and $MyInvocation.MyCommand.Path) {
+    $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+if (-not $ScriptDir) {
+    $ScriptDir = "."
+}
+$RepoRoot = Split-Path -Parent (Split-Path -Parent (Resolve-Path $ScriptDir))
 
 # Find MSBuild via vswhere (prefers VS 2022, falls back to latest)
 function Find-MSBuild {
