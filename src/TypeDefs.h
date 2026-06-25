@@ -599,6 +599,11 @@ typedef struct GLOBALS_T {
 #endif
 
     FR_STATES FindReplaceMatchFoundState;
+    HWND      hwndBrowser;
+    bool      bMarkdownViewerActive;
+    bool      bTemplateWritten;
+    WCHAR     bMarkdownTempFile[MAX_PATH];
+#define ID_MARKDOWNTIMER 0x900D
 
     WCHAR CurrentLngLocaleName[LOCALE_NAME_MAX_LENGTH + 1];
 

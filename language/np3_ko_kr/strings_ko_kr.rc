@@ -95,6 +95,7 @@ BEGIN
     IDT_VIEW_CHASING_DOCTAIL "모니터링 로그(&M)"
     IDT_VIEW_PIN_ON_TOP      "항상 맨 위에"
     IDT_GREP_WIN_TOOL        "파일에서 검색"
+    IDT_VIEW_MARKDOWN        ".md"
 END
 
 STRINGTABLE
