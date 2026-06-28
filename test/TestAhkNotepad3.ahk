@@ -97,8 +97,11 @@ CHECK_ABOUT_BOX() {
     ; check About DlgBox
     WinActivate("ahk_pid " . v_Notepad3_PID)
 
-    ; Open Help -> About... via its keyboard shortcut (Shift+F1):
-    Send("+{F1}")
+    ; Open Help -> About... via WM_COMMAND (43000) or keyboard fallback:
+    PostMessage(0x0111, 43000, 0, , "ahk_pid " . v_Notepad3_PID)
+    if !WinWait("About " . v_NP3Name, , 1.5) {
+        Send("+{F1}")
+    }
 
     if !WinWait("About " . v_NP3Name, , 3) {
         stdout.WriteLine("*** ERROR: " . v_NP3Name . "'s About Box is not displayed!")
