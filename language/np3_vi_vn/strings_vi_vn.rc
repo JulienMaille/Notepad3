@@ -95,6 +95,7 @@ BEGIN
     IDT_VIEW_CHASING_DOCTAIL "Nhật ký theo dõi (&M)"
     IDT_VIEW_PIN_ON_TOP      "Luôn ở trên cùng"
     IDT_GREP_WIN_TOOL        "Tìm kiếm trong tệp"
+    IDT_VIEW_MARKDOWN        ".md"
 END
 
 STRINGTABLE

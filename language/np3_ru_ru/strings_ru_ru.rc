@@ -95,6 +95,7 @@ BEGIN
     IDT_VIEW_CHASING_DOCTAIL "Слежение за файлом"
     IDT_VIEW_PIN_ON_TOP      "Поверх других окон"
     IDT_GREP_WIN_TOOL        "Искать в файлах"
+    IDT_VIEW_MARKDOWN        ".md"
 END
 
 STRINGTABLE
