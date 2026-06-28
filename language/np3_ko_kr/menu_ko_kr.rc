@@ -360,6 +360,7 @@ BEGIN
         MENUITEM "공백 표시(&B)\tCtrl+Shift+8",           IDM_VIEW_SHOWBLANKS
         MENUITEM "줄 끝 표시(&E)\tCtrl+Shift+9",        IDM_VIEW_SHOWEOLS
         MENUITEM "인쇄 불가능한 문자 표시(&P)",           IDM_VIEW_NONPRINTINGCHARS
+        MENUITEM "&Markdown Viewer\tCtrl+Shift+M",            IDM_VIEW_MARKDOWN
         MENUITEM SEPARATOR
         POPUP "사용 내역 마커 변경"
         BEGIN

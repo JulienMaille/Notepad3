@@ -360,6 +360,7 @@ BEGIN
         MENUITEM "Visualizza spazi\tCtrl+Maiusc+8",                     IDM_VIEW_SHOWBLANKS
         MENUITEM "Visualizza terminazioni di linea\tCtrl+Maiusc+9",     IDM_VIEW_SHOWEOLS
         MENUITEM "Visualizza caratteri non stam&pabili",                IDM_VIEW_NONPRINTINGCHARS
+        MENUITEM "&Markdown Viewer\tCtrl+Shift+M",            IDM_VIEW_MARKDOWN
         MENUITEM SEPARATOR
         POPUP "Marcatore cronologia modifiche"
         BEGIN

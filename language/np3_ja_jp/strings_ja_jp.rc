@@ -95,6 +95,7 @@ BEGIN
     IDT_VIEW_CHASING_DOCTAIL "ログ監視用モード"
     IDT_VIEW_PIN_ON_TOP      "常に手前に表示"
     IDT_GREP_WIN_TOOL        "ファイル群から検索"
+    IDT_VIEW_MARKDOWN        ".md"
 END
 
 STRINGTABLE

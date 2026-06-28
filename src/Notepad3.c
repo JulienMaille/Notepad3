@@ -32,6 +32,16 @@
 #include <string.h>
 #include <vsstyle.h>
 
+#include <exdisp.h>
+#include <mshtml.h>
+
+typedef BOOL (WINAPI *LPFN_AtlAxWinInit)();
+typedef HRESULT (WINAPI *LPFN_AtlAxGetControl)(HWND, IUnknown**);
+
+static LPFN_AtlAxWinInit pfnAtlAxWinInit = NULL;
+static LPFN_AtlAxGetControl pfnAtlAxGetControl = NULL;
+
+#include "SciLexer.h"
 #include "PathLib.h"
 #include "Edit.h"
 #include "EditRTF.h"
@@ -282,6 +292,8 @@ static TBBUTTON  s_tbbMainWnd[] = {
     { 0, 0, 0, BTNS_SEP, { 0 }, 0, 0 },
     { 28, IDT_VIEW_PIN_ON_TOP, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
     { 0, 0, 0, BTNS_SEP, { 0 }, 0, 0 },
+    { I_IMAGENONE, IDT_VIEW_MARKDOWN, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
+    { 0, 0, 0, BTNS_SEP, { 0 }, 0, 0 },
     { 16, IDT_FILE_EXIT, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
     { 0, 0, 0, BTNS_SEP, { 0 }, 0, 0 },
     { 15, IDT_VIEW_SCHEMECONFIG, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 },
@@ -292,7 +304,7 @@ static TBBUTTON  s_tbbMainWnd[] = {
     { 26, IDT_VIEW_CHASING_DOCTAIL, TBSTATE_ENABLED, BTNS_BUTTON, { 0 }, 0, 0 }
 };
 // don't show buttons beyond this TBBUTTON[] index:
-#define TBBUTTON_LAST_DEFAULT (39)
+#define TBBUTTON_LAST_DEFAULT (41)
 
 WCHAR              TBBUTTON_DEFAULT_IDS[256] = { L'\0' };  // filled in _InitGlobals()
 const WCHAR* const TBBUTTON_DEFAULT_IDS_OLD = L"1 32 2 4 3 28 0 5 6 0 7 8 9 0 10 11 0 30 0 12 0 24 26 0 22 23 0 13 14 0 27 0 15 0 25 0 17";
@@ -365,6 +377,14 @@ static bool _IsDropSnapshotPath(const HPATHL hpth);
 static void _RegisterDropSnapshot(const HPATHL hpth);
 static void _CleanupDropSnapshots(bool dropAll);
 static HPATHL _ResolveSelectionForOpen(int* lineNum, bool* isDir);
+
+static void MarkdownViewer_UpdateActiveState(HWND hwndMain);
+static void MarkdownViewer_Sync();
+static void MarkdownViewer_Cleanup();
+static bool _IsMarkdownFile();
+static void _TriggerLayoutResize(HWND hwnd);
+static bool _BrowserCopyToClipboard();
+static void CALLBACK MarkdownTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
 
 // ----------------------------------------------------------------------------
 
@@ -906,6 +926,10 @@ static void _InitGlobals()
     Globals.pStdDarkModeIniStyles = NULL;
     Globals.bMinimizedToTray = false;
     Globals.uCurrentThemeIndex = 0;
+    Globals.hwndBrowser = NULL;
+    Globals.bMarkdownViewerActive = false;
+    Globals.bTemplateWritten = false;
+
 
     Flags.bHugeFileLoadState = DefaultFlags.bHugeFileLoadState = false;
     Flags.bDevDebugMode = DefaultFlags.bDevDebugMode = false;
@@ -977,10 +1001,10 @@ static void _InitGlobals()
     WCHAR tchIndex[16] = { L'\0' };
     StringCchPrintf(tchIndex, COUNTOF(tchIndex), L"%i", s_tbbMainWnd[0].iBitmap + 1);
     StringCchCopy(TBBUTTON_DEFAULT_IDS, COUNTOF(TBBUTTON_DEFAULT_IDS), tchIndex);
-    assert(TBBUTTON_LAST_DEFAULT <= COUNTOF(s_tbbMainWnd));
     for (int i = 1; i < TBBUTTON_LAST_DEFAULT; ++i) {
         if (s_tbbMainWnd[i].idCommand) {
-            StringCchPrintf(tchIndex, COUNTOF(tchIndex), L" %i", s_tbbMainWnd[i].iBitmap + 1);
+            int const iBitmapVal = (s_tbbMainWnd[i].idCommand == IDT_VIEW_MARKDOWN) ? (IDT_VIEW_MARKDOWN - IDT_FILE_NEW) : s_tbbMainWnd[i].iBitmap;
+            StringCchPrintf(tchIndex, COUNTOF(tchIndex), L" %i", iBitmapVal + 1);
             StringCchCat(TBBUTTON_DEFAULT_IDS, COUNTOF(TBBUTTON_DEFAULT_IDS), tchIndex);
         } else {
             StringCchCat(TBBUTTON_DEFAULT_IDS, COUNTOF(TBBUTTON_DEFAULT_IDS), L" 0");
@@ -1059,6 +1083,9 @@ static void _CleanUpResources(const HWND hwnd, bool bIsInitialized)
         KillTimer(hwnd, ID_PASTEBOARDTIMER);
         KillTimer(hwnd, ID_TINYEXPRCOPYTIMER);
     }
+
+    // Cleanup Markdown Viewer resources (browser, atl.dll)
+    MarkdownViewer_Cleanup();
 
     // Delete any drag-and-drop snapshots this instance still owns.
     _CleanupDropSnapshots(true);
@@ -3441,7 +3468,8 @@ void CreateBars(HWND hwnd, HINSTANCE hInstance)
             continue;
         }
 
-        StringCchPrintf(tchIndex, COUNTOF(tchIndex), L"%02i", s_tbbMainWnd[i].iBitmap + 1);
+        int const iBitmapKey = (s_tbbMainWnd[i].idCommand == IDT_VIEW_MARKDOWN) ? (IDT_VIEW_MARKDOWN - IDT_FILE_NEW) : s_tbbMainWnd[i].iBitmap;
+        StringCchPrintf(tchIndex, COUNTOF(tchIndex), L"%02i", iBitmapKey + 1);
 
         if (IniSectionGetString(L"Toolbar Labels", tchIndex, L"", tchDesc, COUNTOF(tchDesc)) > 0) {
             s_tbbMainWnd[i].iString = SendMessage(Globals.hwndToolbar, TB_ADDSTRING, 0, (LPARAM)tchDesc);
@@ -3449,7 +3477,12 @@ void CreateBars(HWND hwnd, HINSTANCE hInstance)
         } else {
             GetLngString(s_tbbMainWnd[i].idCommand, tchDesc, COUNTOF(tchDesc));
             s_tbbMainWnd[i].iString = SendMessage(Globals.hwndToolbar, TB_ADDSTRING, 0, (LPARAM)tchDesc); // tooltip
-            s_tbbMainWnd[i].fsStyle &= ~(BTNS_AUTOSIZE | BTNS_SHOWTEXT);
+            // Text-only buttons (no bitmap) must show their label to remain visible
+            if (s_tbbMainWnd[i].iBitmap == I_IMAGENONE) {
+                s_tbbMainWnd[i].fsStyle |= BTNS_AUTOSIZE | BTNS_SHOWTEXT;
+            } else {
+                s_tbbMainWnd[i].fsStyle &= ~(BTNS_AUTOSIZE | BTNS_SHOWTEXT);
+            }
         }
     }
 
@@ -3754,13 +3787,24 @@ LRESULT MsgSize(HWND hwnd, WPARAM wParam, LPARAM lParam)
     }
 
 
-    HDWP const hdwp = BeginDeferWindowPos(2);
+    HDWP const hdwp = BeginDeferWindowPos(Globals.bMarkdownViewerActive && Globals.hwndBrowser ? 3 : 2);
 
-    DeferWindowPos(hdwp,s_hwndEditFrame,NULL,x,y,cx,cy, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (Globals.bMarkdownViewerActive && Globals.hwndBrowser) {
+        int const cxEdit = cx / 2;
+        int const cxBrowser = cx - cxEdit;
+        int const xBrowser = x + cxEdit;
 
-    DeferWindowPos(hdwp, g_hwndEditWindow, s_hwndEditFrame,
-                   x+s_cxEditFrame,y+s_cyEditFrame, cx-2*s_cxEditFrame,cy-2*s_cyEditFrame,
-                   SWP_NOZORDER | SWP_NOACTIVATE);
+        DeferWindowPos(hdwp, s_hwndEditFrame, NULL, x, y, cxEdit, cy, SWP_NOZORDER | SWP_NOACTIVATE);
+        DeferWindowPos(hdwp, g_hwndEditWindow, s_hwndEditFrame,
+                       x+s_cxEditFrame, y+s_cyEditFrame, cxEdit-2*s_cxEditFrame, cy-2*s_cyEditFrame,
+                       SWP_NOZORDER | SWP_NOACTIVATE);
+        DeferWindowPos(hdwp, Globals.hwndBrowser, NULL, xBrowser, y, cxBrowser, cy, SWP_NOZORDER | SWP_NOACTIVATE);
+    } else {
+        DeferWindowPos(hdwp, s_hwndEditFrame, NULL, x, y, cx, cy, SWP_NOZORDER | SWP_NOACTIVATE);
+        DeferWindowPos(hdwp, g_hwndEditWindow, s_hwndEditFrame,
+                       x+s_cxEditFrame, y+s_cyEditFrame, cx-2*s_cxEditFrame, cy-2*s_cyEditFrame,
+                       SWP_NOZORDER | SWP_NOACTIVATE);
+    }
 
     EndDeferWindowPos(hdwp);
 
@@ -5260,6 +5304,12 @@ LRESULT MsgInitMenu(HWND hwnd, WPARAM wParam, LPARAM lParam)
 
     UpdateSaveSettingsCmds();
 
+    {
+        bool const isMarkdown = _IsMarkdownFile();
+        EnableCmd(hmenu, IDM_VIEW_MARKDOWN, isMarkdown);
+        CheckCmd(hmenu, IDM_VIEW_MARKDOWN, Globals.bMarkdownViewerActive);
+    }
+
     return FALSE;
 }
 
@@ -5851,6 +5901,12 @@ static bool _HandleEditBasicCommands(HWND hwnd, UINT umsg, WPARAM wParam, LPARAM
 
 
     case IDM_EDIT_COPY: {
+        // Forward to browser if it has focus (allows copying selected text from preview)
+        HWND const hFocus = GetFocus();
+        if (Globals.hwndBrowser && (hFocus == Globals.hwndBrowser || IsChild(Globals.hwndBrowser, hFocus))) {
+            _BrowserCopyToClipboard();
+            break;
+        }
         if (s_flagPasteBoard) {
             s_bLastCopyFromMe = true;
         }
@@ -5929,6 +5985,9 @@ static bool _HandleEditBasicCommands(HWND hwnd, UINT umsg, WPARAM wParam, LPARAM
             SciCall_Paste();
             EndUndoTransAction();
             RestoreNotifyEvents();
+            if (Globals.bMarkdownViewerActive) {
+                SetTimer(hwnd, ID_MARKDOWNTIMER, 300, MarkdownTimerProc);
+            }
         }
         break;
 
@@ -6928,6 +6987,18 @@ static bool _HandleViewAndSettingsCommands(HWND hwnd, UINT umsg, WPARAM wParam, 
 
     case IDM_VIEW_SCHEME:
         Style_SelectLexerDlg(Globals.hwndEdit);
+        break;
+
+
+    case IDM_VIEW_MARKDOWN:
+        if (_IsMarkdownFile()) {
+            Globals.bMarkdownViewerActive = !Globals.bMarkdownViewerActive;
+            MarkdownViewer_UpdateActiveState(hwnd);
+            RECT rc;
+            GetClientRect(hwnd, &rc);
+            SendMessage(hwnd, WM_SIZE, 0, MAKELPARAM(rc.right - rc.left, rc.bottom - rc.top));
+            UpdateToolbar();
+        }
         break;
 
 
@@ -8441,6 +8512,7 @@ static const struct { unsigned idt; unsigned idm; } s_ToolbarDispatch[] = {
     { IDT_VIEW_TOGGLE_VIEW,        IDM_VIEW_TOGGLE_VIEW },
     { IDT_VIEW_PIN_ON_TOP,         IDM_SET_ALWAYSONTOP },
     { IDT_FILE_LAUNCH,             IDM_FILE_LAUNCH },
+    { IDT_VIEW_MARKDOWN,           IDM_VIEW_MARKDOWN },
 };
 
 static bool _HandleToolbarCommands(HWND hwnd, UINT umsg, WPARAM wParam, LPARAM lParam)
@@ -9849,6 +9921,14 @@ static LRESULT _MsgNotifyFromEdit(HWND hwnd, const SCNotification* const scn)
     case SCN_MODIFIED: {
         /// bModified = set in _MsgNotifyLean() !
         if (bModified) {
+            if (Globals.bMarkdownViewerActive) {
+                SetTimer(hwnd, ID_MARKDOWNTIMER, 300, MarkdownTimerProc);
+            } else if (_IsMarkdownFile()) {
+                Globals.bMarkdownViewerActive = true;
+                MarkdownViewer_UpdateActiveState(hwnd);
+                _TriggerLayoutResize(hwnd);
+                UpdateToolbar();
+            }
             int const iModType = scn->modificationType;
             if (IsMarkOccurrencesEnabled()) {
                 MarkAllOccurrences(-1, true);
@@ -11068,6 +11148,12 @@ static void  _UpdateToolbarDelayed()
     CheckTool(Globals.hwndToolbar, IDT_VIEW_ZOOMIN,    (zoom > NP3_DEFAULT_ZOOM));
     CheckTool(Globals.hwndToolbar, IDT_VIEW_RESETZOOM, (zoom == NP3_DEFAULT_ZOOM));
     CheckTool(Globals.hwndToolbar, IDT_VIEW_ZOOMOUT,   (zoom < NP3_DEFAULT_ZOOM));
+
+    {
+        bool const isMarkdown = _IsMarkdownFile();
+        EnableTool(Globals.hwndToolbar, IDT_VIEW_MARKDOWN, isMarkdown);
+        CheckTool(Globals.hwndToolbar, IDT_VIEW_MARKDOWN, Globals.bMarkdownViewerActive);
+    }
 }
 
 
@@ -12140,6 +12226,13 @@ bool FileLoad(const HPATHL hfile_pth, const FileLoadFlags fLoadFlags, const DocP
             ShowZoomCallTip();
         }
 
+        if (Globals.bMarkdownViewerActive) {
+            Globals.bMarkdownViewerActive = false;
+            MarkdownViewer_UpdateActiveState(Globals.hwndMain);
+            _TriggerLayoutResize(Globals.hwndMain);
+            UpdateToolbar();
+        }
+
         return true;
     }
 
@@ -12395,6 +12488,23 @@ bool FileLoad(const HPATHL hfile_pth, const FileLoadFlags fLoadFlags, const DocP
         ShowZoomCallTip();
     }
     UpdateToolbar_Now(Globals.hwndMain);
+
+    if (fSuccess) {
+        bool const isMarkdown = _IsMarkdownFile();
+        if (isMarkdown && !Globals.bMarkdownViewerActive) {
+            Globals.bMarkdownViewerActive = true;
+            MarkdownViewer_UpdateActiveState(Globals.hwndMain);
+            _TriggerLayoutResize(Globals.hwndMain);
+            UpdateToolbar();
+        } else if (!isMarkdown && Globals.bMarkdownViewerActive) {
+            Globals.bMarkdownViewerActive = false;
+            MarkdownViewer_UpdateActiveState(Globals.hwndMain);
+            _TriggerLayoutResize(Globals.hwndMain);
+            UpdateToolbar();
+        } else if (Globals.bMarkdownViewerActive) {
+            MarkdownViewer_Sync();
+        }
+    }
 
     return fSuccess;
 }
@@ -12827,6 +12937,7 @@ bool FileSave(FileSaveFlags fSaveFlags)
     if (fSuccess) {
         AutoSaveStop();
         ResetFileObservationData(true);
+        MarkdownViewer_Sync();
     }
 
     UpdateToolbar();
@@ -13980,6 +14091,398 @@ void CALLBACK AutoSaveTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dw
     UNREFERENCED_PARAMETER(dwTime);
 
     AutoSaveDoWork(FSF_None);
+}
+
+
+static HMODULE s_hAtlModule = NULL;
+static DWORD s_dwNavCookie = 0;
+#define DISPID_BEFORENAVIGATE2 250
+
+// Minimal IDispatch sink for DWebBrowserEvents2::BeforeNavigate2
+typedef struct {
+    IDispatchVtbl* lpVtbl;
+    LONG refCount;
+} NavSink;
+
+static HRESULT STDMETHODCALLTYPE NavSink_QueryInterface(IDispatch* This, REFIID riid, void** ppv) {
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IDispatch)) {
+        *ppv = This; This->lpVtbl->AddRef(This); return S_OK;
+    }
+    *ppv = NULL; return E_NOINTERFACE;
+}
+static ULONG STDMETHODCALLTYPE NavSink_AddRef(IDispatch* This) {
+    return InterlockedIncrement(&((NavSink*)This)->refCount);
+}
+static ULONG STDMETHODCALLTYPE NavSink_Release(IDispatch* This) {
+    ULONG r = InterlockedDecrement(&((NavSink*)This)->refCount);
+    if (r == 0) FreeMem((NavSink*)This);
+    return r;
+}
+static HRESULT STDMETHODCALLTYPE NavSink_GetTypeInfoCount(IDispatch* This, UINT* pct) {
+    (void)This; *pct = 0; return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE NavSink_GetTypeInfo(IDispatch* This, UINT i, LCID l, ITypeInfo** p) {
+    (void)This; (void)i; (void)l; *p = NULL; return E_NOTIMPL;
+}
+static HRESULT STDMETHODCALLTYPE NavSink_GetIDsOfNames(IDispatch* This, REFIID riid, LPOLESTR* rgszNames, UINT cNames, LCID lcid, DISPID* rgDispId) {
+    (void)This; (void)riid; (void)rgszNames; (void)cNames; (void)lcid; (void)rgDispId; return E_NOTIMPL;
+}
+static HRESULT STDMETHODCALLTYPE NavSink_Invoke(IDispatch* This, DISPID id, REFIID riid, LCID lcid, WORD wFlags, DISPPARAMS* pDispParams, VARIANT* pVarResult, EXCEPINFO* pExcepInfo, UINT* puArgErr) {
+    (void)This; (void)riid; (void)lcid; (void)wFlags; (void)pVarResult; (void)pExcepInfo; (void)puArgErr;
+    if (id == DISPID_BEFORENAVIGATE2 && pDispParams && pDispParams->cArgs >= 7) {
+        VARIANT* pUrl = &pDispParams->rgvarg[5];
+        if (pUrl->vt == VT_BSTR && pUrl->bstrVal &&
+            (wcsncmp(pUrl->bstrVal, L"http://", 7) == 0 ||
+             wcsncmp(pUrl->bstrVal, L"https://", 8) == 0 ||
+             wcsncmp(pUrl->bstrVal, L"ftp://", 6) == 0 ||
+             wcsncmp(pUrl->bstrVal, L"mailto:", 7) == 0)) {
+            ShellExecuteW(NULL, L"open", pUrl->bstrVal, NULL, NULL, SW_SHOWNORMAL);
+            VARIANT* pCancelVar = &pDispParams->rgvarg[0];
+            if (pCancelVar->vt == (VT_BYREF | VT_VARIANT) && pCancelVar->pvarVal) {
+                pCancelVar->pvarVal->vt = VT_BOOL;
+                pCancelVar->pvarVal->boolVal = VARIANT_TRUE;
+            } else if (pCancelVar->vt == (VT_BYREF | VT_BOOL) && pCancelVar->pboolVal) {
+                *pCancelVar->pboolVal = VARIANT_TRUE;
+            }
+        }
+    }
+    return S_OK;
+}
+
+static IDispatchVtbl g_NavSinkVtbl = {
+    NavSink_QueryInterface, NavSink_AddRef, NavSink_Release,
+    NavSink_GetTypeInfoCount, NavSink_GetTypeInfo, NavSink_GetIDsOfNames,
+    NavSink_Invoke
+};
+
+static IDispatch* CreateNavSink() {
+    NavSink* s = (NavSink*)AllocMem(sizeof(NavSink), HEAP_ZERO_MEMORY);
+    if (s) { s->lpVtbl = &g_NavSinkVtbl; s->refCount = 1; }
+    return (IDispatch*)s;
+}
+
+static bool InitAtlAxWin()
+{
+    static bool bInitialized = false;
+    static bool bSuccess = false;
+    if (bInitialized) {
+        return bSuccess;
+    }
+    bInitialized = true;
+    HKEY hKey = NULL;
+    if (RegCreateKeyEx(HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Internet Explorer\\Main\\FeatureControl\\FEATURE_BROWSER_EMULATION",
+        0, NULL, 0, KEY_SET_VALUE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
+        DWORD const dwVal = 11001;
+        wchar_t szExe[MAX_PATH] = { 0 };
+        GetModuleFileName(NULL, szExe, COUNTOF(szExe));
+        wchar_t* pExeName = wcsrchr(szExe, L'\\');
+        if (pExeName) {
+            ++pExeName;
+            RegSetValueEx(hKey, pExeName, 0, REG_DWORD, (BYTE*)&dwVal, sizeof(dwVal));
+        }
+        RegCloseKey(hKey);
+    }
+    s_hAtlModule = LoadLibrary(L"atl.dll");
+    if (s_hAtlModule) {
+        pfnAtlAxWinInit = (LPFN_AtlAxWinInit)GetProcAddress(s_hAtlModule, "AtlAxWinInit");
+        pfnAtlAxGetControl = (LPFN_AtlAxGetControl)GetProcAddress(s_hAtlModule, "AtlAxGetControl");
+        if (pfnAtlAxWinInit && pfnAtlAxGetControl) {
+            if (pfnAtlAxWinInit()) {
+                bSuccess = true;
+            }
+        }
+    }
+    return bSuccess;
+}
+
+static void MarkdownViewer_Cleanup()
+{
+    KillTimer(Globals.hwndMain, ID_MARKDOWNTIMER);
+    if (Globals.hwndBrowser && s_dwNavCookie) {
+        IUnknown* pUnk = NULL;
+        HRESULT hr = pfnAtlAxGetControl(Globals.hwndBrowser, &pUnk);
+        if (SUCCEEDED(hr) && pUnk) {
+            IConnectionPointContainer* pCPC = NULL;
+            hr = pUnk->lpVtbl->QueryInterface(pUnk, &IID_IConnectionPointContainer, (void**)&pCPC);
+            if (SUCCEEDED(hr) && pCPC) {
+                IConnectionPoint* pCP = NULL;
+                hr = pCPC->lpVtbl->FindConnectionPoint(pCPC, &DIID_DWebBrowserEvents2, &pCP);
+                if (SUCCEEDED(hr) && pCP) {
+                    pCP->lpVtbl->Unadvise(pCP, s_dwNavCookie);
+                    pCP->lpVtbl->Release(pCP);
+                }
+                pCPC->lpVtbl->Release(pCPC);
+            }
+            pUnk->lpVtbl->Release(pUnk);
+        }
+        s_dwNavCookie = 0;
+    }
+    if (Globals.hwndBrowser) {
+        DestroyWindow(Globals.hwndBrowser);
+        Globals.hwndBrowser = NULL;
+    }
+    Globals.bTemplateWritten = false;
+    if (s_hAtlModule) {
+        FreeLibrary(s_hAtlModule);
+        s_hAtlModule = NULL;
+    }
+    pfnAtlAxWinInit = NULL;
+    pfnAtlAxGetControl = NULL;
+}
+
+static bool _IsMarkdownFile()
+{
+    int const lexer = SciCall_GetLexer();
+    if (lexer == SCLEX_MARKDOWN) {
+        return true;
+    }
+    if (Path_IsNotEmpty(Paths.CurrentFile)) {
+        LPCWSTR const ext = Path_FindExtension(Paths.CurrentFile);
+        if (ext && (CompareStringOrdinal(ext, -1, L".md", -1, TRUE) == CSTR_EQUAL ||
+                    CompareStringOrdinal(ext, -1, L".mdx", -1, TRUE) == CSTR_EQUAL ||
+                    CompareStringOrdinal(ext, -1, L".mkd", -1, TRUE) == CSTR_EQUAL ||
+                    CompareStringOrdinal(ext, -1, L".markdown", -1, TRUE) == CSTR_EQUAL)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void _TriggerLayoutResize(HWND hwnd)
+{
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+    PostMessage(hwnd, WM_SIZE, 0, MAKELPARAM(rc.right - rc.left, rc.bottom - rc.top));
+}
+
+static bool _BrowserCopyToClipboard()
+{
+    IUnknown* pUnk = NULL;
+    IWebBrowser2* pWB = NULL;
+    IDispatch* pDisp = NULL;
+    IHTMLDocument2* pDoc = NULL;
+    HRESULT hr = pfnAtlAxGetControl(Globals.hwndBrowser, &pUnk);
+    if (!SUCCEEDED(hr) || !pUnk) return false;
+    hr = pUnk->lpVtbl->QueryInterface(pUnk, &IID_IWebBrowser2, (void**)&pWB);
+    pUnk->lpVtbl->Release(pUnk);
+    if (!SUCCEEDED(hr) || !pWB) return false;
+    hr = pWB->lpVtbl->get_Document(pWB, &pDisp);
+    pWB->lpVtbl->Release(pWB);
+    if (!SUCCEEDED(hr) || !pDisp) return false;
+    hr = pDisp->lpVtbl->QueryInterface(pDisp, &IID_IHTMLDocument2, (void**)&pDoc);
+    pDisp->lpVtbl->Release(pDisp);
+    if (!SUCCEEDED(hr) || !pDoc) return false;
+    VARIANT vEmpty;
+    VariantInit(&vEmpty);
+    VARIANT_BOOL bRet = VARIANT_FALSE;
+    pDoc->lpVtbl->execCommand(pDoc, L"Copy", VARIANT_FALSE, vEmpty, &bRet);
+    pDoc->lpVtbl->Release(pDoc);
+    return true;
+}
+
+static void MarkdownViewer_UpdateActiveState(HWND hwndMain)
+{
+    if (Globals.bMarkdownViewerActive) {
+        if (!Globals.hwndBrowser) {
+            if (!InitAtlAxWin()) {
+                Globals.bMarkdownViewerActive = false;
+                UpdateToolbar();
+                return;
+            }
+            Globals.hwndBrowser = CreateWindowEx(
+                0,
+                L"AtlAxWin",
+                L"shell.explorer.2",
+                WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+                0, 0, 0, 0,
+                hwndMain,
+                NULL,
+                Globals.hInstance,
+                NULL
+            );
+            if (Globals.hwndBrowser) {
+                IUnknown* pUnk = NULL;
+                HRESULT hr = pfnAtlAxGetControl(Globals.hwndBrowser, &pUnk);
+                if (SUCCEEDED(hr) && pUnk) {
+                    IWebBrowser2* pWebBrowser = NULL;
+                    hr = pUnk->lpVtbl->QueryInterface(pUnk, &IID_IWebBrowser2, (void**)&pWebBrowser);
+                    if (SUCCEEDED(hr) && pWebBrowser) {
+                        pWebBrowser->lpVtbl->put_Silent(pWebBrowser, VARIANT_TRUE);
+                        pWebBrowser->lpVtbl->put_RegisterAsBrowser(pWebBrowser, VARIANT_FALSE);
+
+                        Globals.bTemplateWritten = false;
+
+                        IDispatch* pSink = CreateNavSink();
+                        if (pSink) {
+                            IConnectionPointContainer* pCPC = NULL;
+                            hr = pUnk->lpVtbl->QueryInterface(pUnk, &IID_IConnectionPointContainer, (void**)&pCPC);
+                            if (SUCCEEDED(hr) && pCPC) {
+                                IConnectionPoint* pCP = NULL;
+                                hr = pCPC->lpVtbl->FindConnectionPoint(pCPC, &DIID_DWebBrowserEvents2, &pCP);
+                                if (SUCCEEDED(hr) && pCP) {
+                                    pCP->lpVtbl->Advise(pCP, (IUnknown*)pSink, &s_dwNavCookie);
+                                    pCP->lpVtbl->Release(pCP);
+                                }
+                                pCPC->lpVtbl->Release(pCPC);
+                            }
+                            pSink->lpVtbl->Release(pSink);
+                        }
+
+                        VARIANT vEmpty;
+                        VariantInit(&vEmpty);
+                        BSTR bstrUrl = SysAllocString(L"about:blank");
+                        pWebBrowser->lpVtbl->Navigate(pWebBrowser, bstrUrl, &vEmpty, &vEmpty, &vEmpty, &vEmpty);
+                        SysFreeString(bstrUrl);
+
+                        pWebBrowser->lpVtbl->Release(pWebBrowser);
+                    }
+                    pUnk->lpVtbl->Release(pUnk);
+                }
+            }
+        } else {
+            ShowWindow(Globals.hwndBrowser, SW_SHOW);
+        }
+        MarkdownViewer_Sync();
+    } else {
+        if (Globals.hwndBrowser) {
+            ShowWindow(Globals.hwndBrowser, SW_HIDE);
+        }
+    }
+}
+
+static void MarkdownViewer_Sync()
+{
+    if (!Globals.bMarkdownViewerActive || !Globals.hwndBrowser) {
+        return;
+    }
+    IUnknown* pUnk = NULL;
+    HRESULT hr = pfnAtlAxGetControl(Globals.hwndBrowser, &pUnk);
+    if (SUCCEEDED(hr) && pUnk) {
+        IWebBrowser2* pWebBrowser = NULL;
+        hr = pUnk->lpVtbl->QueryInterface(pUnk, &IID_IWebBrowser2, (void**)&pWebBrowser);
+        pUnk->lpVtbl->Release(pUnk);
+        if (SUCCEEDED(hr) && pWebBrowser) {
+            READYSTATE rs;
+            hr = pWebBrowser->lpVtbl->get_ReadyState(pWebBrowser, &rs);
+            if (SUCCEEDED(hr)) {
+                if (rs != READYSTATE_COMPLETE) {
+                    SetTimer(Globals.hwndMain, ID_MARKDOWNTIMER, 50, MarkdownTimerProc);
+                } else {
+                    if (!Globals.bTemplateWritten) {
+                        IDispatch* pDisp = NULL;
+                        hr = pWebBrowser->lpVtbl->get_Document(pWebBrowser, &pDisp);
+                        if (SUCCEEDED(hr) && pDisp) {
+                            IHTMLDocument2* pDoc2 = NULL;
+                            hr = pDisp->lpVtbl->QueryInterface(pDisp, &IID_IHTMLDocument2, (void**)&pDoc2);
+                            pDisp->lpVtbl->Release(pDisp);
+                            if (SUCCEEDED(hr) && pDoc2) {
+                                HRSRC hRes = FindResource(Globals.hInstance, MAKEINTRESOURCE(IDR_MARKDOWN_TEMPLATE), RT_RCDATA);
+                                if (hRes) {
+                                    HGLOBAL hGlob = LoadResource(Globals.hInstance, hRes);
+                                    if (hGlob) {
+                                        const char* pData = (const char*)LockResource(hGlob);
+                                        DWORD dwSize = SizeofResource(Globals.hInstance, hRes);
+                                        if (pData && dwSize > 0) {
+                                            int wlen = MultiByteToWideChar(CP_UTF8, 0, pData, dwSize, NULL, 0);
+                                            wchar_t* wbuf = (wchar_t*)AllocMem(sizeof(wchar_t) * (wlen + 1), HEAP_ZERO_MEMORY);
+                                            if (wbuf) {
+                                                MultiByteToWideChar(CP_UTF8, 0, pData, dwSize, wbuf, wlen);
+                                                wbuf[wlen] = L'\0';
+
+                                                SAFEARRAY* pSA = SafeArrayCreateVector(VT_VARIANT, 0, 1);
+                                                if (pSA) {
+                                                    VARIANT* pVar;
+                                                    SafeArrayAccessData(pSA, (void**)&pVar);
+                                                    pVar->vt = VT_BSTR;
+                                                    pVar->bstrVal = SysAllocString(wbuf);
+                                                    SafeArrayUnaccessData(pSA);
+                                                    pDoc2->lpVtbl->write(pDoc2, pSA);
+                                                    pDoc2->lpVtbl->close(pDoc2);
+                                                    SafeArrayDestroy(pSA);
+
+                                                    Globals.bTemplateWritten = true;
+                                                    SetTimer(Globals.hwndMain, ID_MARKDOWNTIMER, 50, MarkdownTimerProc);
+                                                }
+                                                FreeMem(wbuf);
+                                            }
+                                        }
+                                    }
+                                }
+                                pDoc2->lpVtbl->Release(pDoc2);
+                            }
+                        }
+                    } else {
+                        IDispatch* pDisp = NULL;
+                        hr = pWebBrowser->lpVtbl->get_Document(pWebBrowser, &pDisp);
+                        if (SUCCEEDED(hr) && pDisp) {
+                            IHTMLDocument2* pDoc2 = NULL;
+                            hr = pDisp->lpVtbl->QueryInterface(pDisp, &IID_IHTMLDocument2, (void**)&pDoc2);
+                            pDisp->lpVtbl->Release(pDisp);
+                            if (SUCCEEDED(hr) && pDoc2) {
+                                IHTMLDocument3* pDoc3 = NULL;
+                                hr = pDoc2->lpVtbl->QueryInterface(pDoc2, &IID_IHTMLDocument3, (void**)&pDoc3);
+                                if (SUCCEEDED(hr) && pDoc3) {
+                                    IHTMLElement* pElem = NULL;
+                                    BSTR bstrId = SysAllocString(L"markdown-input");
+                                    hr = pDoc3->lpVtbl->getElementById(pDoc3, bstrId, &pElem);
+                                    SysFreeString(bstrId);
+                                    if (SUCCEEDED(hr) && pElem) {
+                                        DocPos const length = SciCall_GetTextLength();
+                                        char* buf = (char*)AllocMem((size_t)(length + 1), HEAP_ZERO_MEMORY);
+                                        if (buf) {
+                                            SciCall_GetText(length + 1, buf);
+                                            int wlen = MultiByteToWideChar(CP_UTF8, 0, buf, -1, NULL, 0);
+                                            wchar_t* wbuf = (wchar_t*)AllocMem(wlen * sizeof(wchar_t), HEAP_ZERO_MEMORY);
+                                            if (wbuf) {
+                                                MultiByteToWideChar(CP_UTF8, 0, buf, -1, wbuf, wlen);
+
+                                                BSTR bstrVal = SysAllocString(wbuf);
+                                                pElem->lpVtbl->put_innerText(pElem, bstrVal);
+                                                SysFreeString(bstrVal);
+
+                                                FreeMem(wbuf);
+                                            }
+                                            FreeMem(buf);
+                                        }
+                                        pElem->lpVtbl->Release(pElem);
+
+                                        IHTMLWindow2* pWindow = NULL;
+                                        hr = pDoc2->lpVtbl->get_parentWindow(pDoc2, &pWindow);
+                                        if (SUCCEEDED(hr) && pWindow) {
+                                            bool const useDark = UseDarkMode();
+                                            wchar_t szScript[64];
+                                            StringCchPrintf(szScript, COUNTOF(szScript), L"setDarkMode(%s); render();", useDark ? L"true" : L"false");
+                                            BSTR bstrCode = SysAllocString(szScript);
+                                            BSTR bstrLanguage = SysAllocString(L"JavaScript");
+                                            VARIANT vRet;
+                                            VariantInit(&vRet);
+                                            pWindow->lpVtbl->execScript(pWindow, bstrCode, bstrLanguage, &vRet);
+                                            SysFreeString(bstrCode);
+                                            SysFreeString(bstrLanguage);
+                                            pWindow->lpVtbl->Release(pWindow);
+                                        }
+                                    }
+                                    pDoc3->lpVtbl->Release(pDoc3);
+                                }
+                                pDoc2->lpVtbl->Release(pDoc2);
+                            }
+                        }
+                    }
+                }
+            }
+            pWebBrowser->lpVtbl->Release(pWebBrowser);
+        }
+    }
+}
+
+static void CALLBACK MarkdownTimerProc(HWND hwnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime)
+{
+    UNREFERENCED_PARAMETER(uMsg);
+    UNREFERENCED_PARAMETER(idEvent);
+    UNREFERENCED_PARAMETER(dwTime);
+    KillTimer(hwnd, ID_MARKDOWNTIMER);
+    MarkdownViewer_Sync();
 }
 
 

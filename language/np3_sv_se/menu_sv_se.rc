@@ -360,6 +360,7 @@ BEGIN
         MENUITEM "Visa blanksteg\tCtrl+Skift+8",                    IDM_VIEW_SHOWBLANKS
         MENUITEM "Visa radslut\tCtrl+Skift+9",                      IDM_VIEW_SHOWEOLS
         MENUITEM "Visa &icke-utskrivbara tecken",                   IDM_VIEW_NONPRINTINGCHARS
+        MENUITEM "&Markdown Viewer\tCtrl+Shift+M",            IDM_VIEW_MARKDOWN
         MENUITEM SEPARATOR
         POPUP "Markör för ändringshistorik"
         BEGIN

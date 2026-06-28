@@ -126,6 +126,7 @@ IDB_ENCODING            BITMAP                  "Encoding.bmp"
 // Theme Dark Mode (UTF-8)
 //
 IDR_STD_DARKMODE_THEME  RCDATA                   "StdDarkModeScheme.ini"
+IDR_MARKDOWN_TEMPLATE   RCDATA                   "res/markdown_template.html"
 
 
 /////////////////////////////////////////////////////////////////////////////

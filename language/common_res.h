@@ -73,6 +73,7 @@
 #define IDR_MAINWNDTB2HOT               1005
 #define IDR_MAINWNDTB2DIS               1006
 #define IDR_STD_DARKMODE_THEME          1050
+#define IDR_MARKDOWN_TEMPLATE           1051
 
 // ==========================================
 
@@ -120,6 +121,7 @@
 #define IDT_GREP_WIN_TOOL               11029
 #define IDT_VIEW_RESETZOOM              11030
 #define IDT_VIEW_NEW_WINDOW             11031
+#define IDT_VIEW_MARKDOWN               11032
 
 #define IDS_MUI_APPTITLE_ELEVATED       12006
 #define IDS_MUI_APPTITLE_PASTEBOARD     12007
@@ -819,6 +821,7 @@
 #define IDM_VIEW_CHGHIST_TOGGLE_MARGIN  41063
 #define IDM_VIEW_CHGHIST_CLEAR_UNDOREDO 41064
 #define IDM_VIEW_NONPRINTINGCHARS       41065
+#define IDM_VIEW_MARKDOWN               41066
 
 // keep Scintilla(SC) order
 #define IDM_SET_RENDER_TECH_GDI         42000   // SC_TECHNOLOGY_DEFAULT(0)
