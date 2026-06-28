@@ -95,6 +95,7 @@ BEGIN
     IDT_VIEW_CHASING_DOCTAIL "Övervakningslogg"
     IDT_VIEW_PIN_ON_TOP      "Alltid överst"
     IDT_GREP_WIN_TOOL        "Sök i filer"
+    IDT_VIEW_MARKDOWN        ".md"
 END
 
 STRINGTABLE

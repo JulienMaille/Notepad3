@@ -95,6 +95,7 @@ BEGIN
     IDT_VIEW_CHASING_DOCTAIL "İzleme günlüğü"
     IDT_VIEW_PIN_ON_TOP      "Pencereyi üste sabitle"
     IDT_GREP_WIN_TOOL        "Dosyalarda ara"
+    IDT_VIEW_MARKDOWN        ".md"
 END
 
 STRINGTABLE

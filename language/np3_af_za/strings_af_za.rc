@@ -95,6 +95,7 @@ BEGIN
     IDT_VIEW_CHASING_DOCTAIL "Moniteringslogboek"
     IDT_VIEW_PIN_ON_TOP      "Altyd Bo-op"
     IDT_GREP_WIN_TOOL        "Soek in lêers"
+    IDT_VIEW_MARKDOWN        ".md"
 END
 
 STRINGTABLE
