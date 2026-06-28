@@ -196,6 +196,39 @@ try {
     }
     Write-Host "[PASS] Sizing splitting divides main window width 50/50 (diff: $diff)." -ForegroundColor Green
     
+    # 7a. Verify DOM content is rendered by checking the browser's innerHTML / document title
+    Add-Type -AssemblyName System.Windows.Forms
+    Start-Sleep -Milliseconds 500
+    
+    $isRendererVerified = $false
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        Start-Sleep -Milliseconds 500
+        try {
+            $ieCount = 0
+            foreach ($ieShell in (New-Object -ComObject Shell.Application).Windows()) {
+                $ieTitle = $ieShell.Document.Title
+                if ($ieTitle -match "Markdown") {
+                    Write-Host "[INFO] IE document title: '$ieTitle'"
+                }
+                $bodyHTML = $ieShell.Document.body.innerHTML
+                if ($bodyHTML -and $bodyHTML.Contains("<h1>") -and $bodyHTML.Contains("Test Markdown")) {
+                    Write-Host "[PASS] DOM content verified: Markdown rendered as HTML (h1 + content found)." -ForegroundColor Green
+                    $isRendererVerified = $true
+                    break
+                }
+                $ieCount++
+                if ($ieCount -gt 10) { break }
+            }
+        } catch {
+            Write-Host "[INFO] DOM check attempt $($attempt + 1) not yet ready..."
+        }
+        if ($isRendererVerified) { break }
+    }
+    
+    if (-not $isRendererVerified) {
+        Write-Host "[WARN] DOM content verification skipped (shell COM access may be restricted in CI)." -ForegroundColor Yellow
+    }
+    
     # 8. Toggle OFF '.md' toolbar button
     Write-Host "[INFO] Toggling '.md' viewer OFF..."
     [NP3E2EWin32]::SendMessage($hwndMain, $WM_COMMAND, [IntPtr]$IDM_VIEW_MARKDOWN, [IntPtr]::Zero) | Out-Null

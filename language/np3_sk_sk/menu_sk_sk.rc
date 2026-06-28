@@ -360,6 +360,7 @@ BEGIN
         MENUITEM "Zobraziť &prázdne miesta\tCtrl+Shift+8",     IDM_VIEW_SHOWBLANKS
         MENUITEM "Zobraziť &konce riadkov\tCtrl+Shift+9",    IDM_VIEW_SHOWEOLS
         MENUITEM "Zobraziť &netlačiteľné znaky",           IDM_VIEW_NONPRINTINGCHARS
+        MENUITEM "&Markdown Viewer\tCtrl+Shift+M",            IDM_VIEW_MARKDOWN
         MENUITEM SEPARATOR
         POPUP "Značka histórie zmien"
         BEGIN

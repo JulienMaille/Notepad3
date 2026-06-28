@@ -360,6 +360,7 @@ BEGIN
         MENUITEM "Hiển thị khoảng trắng(&B)\tCtrl+Shift+8",            IDM_VIEW_SHOWBLANKS
         MENUITEM "Hiển thị ký hiệu kết thúc dòng(&E)\tCtrl+Shift+9",           IDM_VIEW_SHOWEOLS
         MENUITEM "Show Non-&Printable Characters",           IDM_VIEW_NONPRINTINGCHARS
+        MENUITEM "&Markdown Viewer\tCtrl+Shift+M",            IDM_VIEW_MARKDOWN
         MENUITEM SEPARATOR
         POPUP "Thay đổi dấu hiệu thay đổi"
         BEGIN
