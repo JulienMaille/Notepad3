@@ -95,6 +95,7 @@ BEGIN
     IDT_VIEW_CHASING_DOCTAIL "Καταγραφή εποπτείας"
     IDT_VIEW_PIN_ON_TOP      "Πάντα στην κορυφή"
     IDT_GREP_WIN_TOOL        "Αναζήτηση σε αρχεία"
+    IDT_VIEW_MARKDOWN        ".md"
 END
 
 STRINGTABLE

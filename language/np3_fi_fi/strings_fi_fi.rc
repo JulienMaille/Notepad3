@@ -95,6 +95,7 @@ BEGIN
     IDT_VIEW_CHASING_DOCTAIL "Seurantaloki"
     IDT_VIEW_PIN_ON_TOP      "Aina päällimmäisenä"
     IDT_GREP_WIN_TOOL        "Etsi tiedostoista"
+    IDT_VIEW_MARKDOWN        ".md"
 END
 
 STRINGTABLE

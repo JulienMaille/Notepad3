@@ -95,6 +95,7 @@ BEGIN
     IDT_VIEW_CHASING_DOCTAIL "Logboek"
     IDT_VIEW_PIN_ON_TOP      "Altijd bovenop"
     IDT_GREP_WIN_TOOL        "Zoek in bestanden"
+    IDT_VIEW_MARKDOWN        ".md"
 END
 
 STRINGTABLE

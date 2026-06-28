@@ -95,6 +95,7 @@ BEGIN
     IDT_VIEW_CHASING_DOCTAIL "Dziennik monitorowania"
     IDT_VIEW_PIN_ON_TOP      "Zawsze na wierzchu"
     IDT_GREP_WIN_TOOL        "Szukaj w plikach"
+    IDT_VIEW_MARKDOWN        ".md"
 END
 
 STRINGTABLE
