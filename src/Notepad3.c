@@ -6982,7 +6982,7 @@ static bool _HandleViewAndSettingsCommands(HWND hwnd, UINT umsg, WPARAM wParam, 
 
 
     case IDM_VIEW_MARKDOWN:
-        if (Path_IsNotEmpty(Paths.CurrentFile) && ((_wcsicmp(Path_FindExtension(Paths.CurrentFile), L".md") == 0) || (SciCall_GetLexer() == SCLEX_MARKDOWN))) {
+        if ((SciCall_GetLexer() == SCLEX_MARKDOWN) || (Path_IsNotEmpty(Paths.CurrentFile) && (_wcsicmp(Path_FindExtension(Paths.CurrentFile), L".md") == 0))) {
             Globals.bMarkdownViewerActive = !Globals.bMarkdownViewerActive;
             MarkdownViewer_UpdateActiveState(hwnd);
             RECT rc;
@@ -9917,7 +9917,9 @@ static LRESULT _MsgNotifyFromEdit(HWND hwnd, const SCNotification* const scn)
             } else if (SciCall_GetLexer() == SCLEX_MARKDOWN) {
                 Globals.bMarkdownViewerActive = true;
                 MarkdownViewer_UpdateActiveState(hwnd);
-                PostMessage(hwnd, WM_SIZE, 0, 0);
+                RECT rc;
+                GetClientRect(hwnd, &rc);
+                PostMessage(hwnd, WM_SIZE, 0, MAKELPARAM(rc.right - rc.left, rc.bottom - rc.top));
             }
             int const iModType = scn->modificationType;
             if (IsMarkOccurrencesEnabled()) {
@@ -11140,7 +11142,7 @@ static void  _UpdateToolbarDelayed()
     CheckTool(Globals.hwndToolbar, IDT_VIEW_ZOOMOUT,   (zoom < NP3_DEFAULT_ZOOM));
 
     {
-        bool const isMarkdown = Path_IsNotEmpty(Paths.CurrentFile) && ((_wcsicmp(Path_FindExtension(Paths.CurrentFile), L".md") == 0) || (SciCall_GetLexer() == SCLEX_MARKDOWN));
+        bool const isMarkdown = (SciCall_GetLexer() == SCLEX_MARKDOWN) || (Path_IsNotEmpty(Paths.CurrentFile) && (_wcsicmp(Path_FindExtension(Paths.CurrentFile), L".md") == 0));
         EnableTool(Globals.hwndToolbar, IDT_VIEW_MARKDOWN, isMarkdown);
         CheckTool(Globals.hwndToolbar, IDT_VIEW_MARKDOWN, Globals.bMarkdownViewerActive);
     }
@@ -12219,7 +12221,9 @@ bool FileLoad(const HPATHL hfile_pth, const FileLoadFlags fLoadFlags, const DocP
         if (Globals.bMarkdownViewerActive) {
             Globals.bMarkdownViewerActive = false;
             MarkdownViewer_UpdateActiveState(Globals.hwndMain);
-            PostMessage(Globals.hwndMain, WM_SIZE, 0, 0);
+            RECT rc;
+            GetClientRect(Globals.hwndMain, &rc);
+            PostMessage(Globals.hwndMain, WM_SIZE, 0, MAKELPARAM(rc.right - rc.left, rc.bottom - rc.top));
         }
 
         return true;
@@ -12479,15 +12483,19 @@ bool FileLoad(const HPATHL hfile_pth, const FileLoadFlags fLoadFlags, const DocP
     UpdateToolbar_Now(Globals.hwndMain);
 
     if (fSuccess) {
-        bool const isMarkdown = Path_IsNotEmpty(Paths.CurrentFile) && ((_wcsicmp(Path_FindExtension(Paths.CurrentFile), L".md") == 0) || (SciCall_GetLexer() == SCLEX_MARKDOWN));
+        bool const isMarkdown = (SciCall_GetLexer() == SCLEX_MARKDOWN) || (Path_IsNotEmpty(Paths.CurrentFile) && (_wcsicmp(Path_FindExtension(Paths.CurrentFile), L".md") == 0));
         if (isMarkdown && !Globals.bMarkdownViewerActive) {
             Globals.bMarkdownViewerActive = true;
             MarkdownViewer_UpdateActiveState(Globals.hwndMain);
-            PostMessage(Globals.hwndMain, WM_SIZE, 0, 0);
+            RECT rc;
+            GetClientRect(Globals.hwndMain, &rc);
+            PostMessage(Globals.hwndMain, WM_SIZE, 0, MAKELPARAM(rc.right - rc.left, rc.bottom - rc.top));
         } else if (!isMarkdown && Globals.bMarkdownViewerActive) {
             Globals.bMarkdownViewerActive = false;
             MarkdownViewer_UpdateActiveState(Globals.hwndMain);
-            PostMessage(Globals.hwndMain, WM_SIZE, 0, 0);
+            RECT rc;
+            GetClientRect(Globals.hwndMain, &rc);
+            PostMessage(Globals.hwndMain, WM_SIZE, 0, MAKELPARAM(rc.right - rc.left, rc.bottom - rc.top));
         } else if (Globals.bMarkdownViewerActive) {
             MarkdownViewer_UpdateActiveState(Globals.hwndMain);
             MarkdownViewer_Sync();
