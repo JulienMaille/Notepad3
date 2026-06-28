@@ -109,10 +109,22 @@ CHECK_ABOUT_BOX() {
     WinActivate("About " . v_NP3Name)
     ControlClick("OK", "About " . v_NP3Name)
     if !WinWaitClose("About " . v_NP3Name, , 2) {
-        stdout.WriteLine("*** ERROR: " . v_NP3Name . "'s About Box can not be closed!")
-        v_ExitCode := 5
-        Cleanup()
-        ExitApp(v_ExitCode)
+        Send("{Enter}")
+        Sleep(200)
+        if WinExist("About " . v_NP3Name) {
+            Send("{Esc}")
+            Sleep(200)
+        }
+        if WinExist("About " . v_NP3Name) {
+            WinClose("About " . v_NP3Name)
+            Sleep(200)
+        }
+        if WinExist("About " . v_NP3Name) {
+            stdout.WriteLine("*** ERROR: " . v_NP3Name . "'s About Box can not be closed!")
+            v_ExitCode := 5
+            Cleanup()
+            ExitApp(v_ExitCode)
+        }
     }
 }
 ; =============================================================================

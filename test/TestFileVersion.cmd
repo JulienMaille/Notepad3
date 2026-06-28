@@ -59,9 +59,7 @@ goto:EOF
 :: --------------------------------------------------------------------------------------------------------------------
 
 :GETDATE
-for /f "tokens=2 delims==" %%a in ('
-    wmic OS Get localdatetime /value
-') do set "dt=%%a"
+for /f "usebackq tokens=*" %%a in (`powershell -NoProfile -Command "Get-Date -Format 'yyyyMMddHHmmss'"`) do set "dt=%%a"
 set "YY=%dt:~2,2%" & set "YYYY=%dt:~0,4%" & set "MM=%dt:~4,2%" & set "DD=%dt:~6,2%"
 set "HH=%dt:~8,2%" & set "Min=%dt:~10,2%" & set "Sec=%dt:~12,2%"
 ::set "datestamp=%YYYY%%MM%%DD%" & set "timestamp=%HH%%Min%%Sec%"
@@ -78,9 +76,7 @@ set "file=%~1"
 if not defined file goto:EOF
 if not exist "%file%" goto:EOF
 set "FILEVER="
-for /F "tokens=2 delims==" %%a in ('
-    wmic datafile where name^="%file:\=\\%" Get Version /value 
-') do set "FILEVER=%%a"
+for /f "usebackq tokens=*" %%a in (`powershell -NoProfile -Command "[System.Diagnostics.FileVersionInfo]::GetVersionInfo('%file%').FileVersion.Trim()"`) do set "FILEVER=%%a"
 ::echo %file% = %FILEVER% 
 goto:EOF
 :: --------------------------------------------------------------------------------------------------------------------
