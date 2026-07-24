@@ -165,3 +165,27 @@ jobs:
             !Bin/**/*.lib
             !Bin/**/*.exp
           retention-days: 30
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $exePath = Get-ChildItem -Path "Bin" -Recurse -Filter "Notepad3.exe" -ErrorAction Stop | Select-Object -First 1
+          $relDir = ($exePath.DirectoryName) -replace '^.*?[\\/]Bin[\\/]', ''
+          Write-Host "Output directory: $relDir"
+
+          $arch = "${{ matrix.platform }}"
+          if ($arch -eq "Win32") { $arch = "x86" }
+          if ($arch -eq "x64_AVX2") { $arch = "x64" }
+
+          $issFile = Resolve-Path "Build\Installer\notepad3_x64_setup.iss"
+          iscc $issFile "/dArch=$arch" "/dRLSdir=$relDir"
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v6
+        with:
+          name: Notepad3-Installer-${{ matrix.platform }}-${{ matrix.configuration }}
+          path: Build\Packages\*.exe
+          retention-days: 30
