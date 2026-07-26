@@ -5985,6 +5985,9 @@ static bool _HandleEditBasicCommands(HWND hwnd, UINT umsg, WPARAM wParam, LPARAM
             SciCall_Paste();
             EndUndoTransAction();
             RestoreNotifyEvents();
+            if (Globals.bMarkdownViewerActive) {
+                SetTimer(hwnd, ID_MARKDOWNTIMER, 300, MarkdownTimerProc);
+            }
         }
         break;
 
