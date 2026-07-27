@@ -65,10 +65,15 @@ function setDarkMode(useDark) {
 }
 function render(){
     var md=document.getElementById("markdown-input").value;
+    var output=document.getElementById("markdown-output");
+    if(typeof marked==="undefined"){
+        output.innerHTML="<p>Markdown renderer unavailable (MSHTML document mode "+(document.documentMode||"unknown")+"; IE11 required).</p>";
+        return;
+    }
     try{
-        document.getElementById("markdown-output").innerHTML=marked.parse(md);
+        output.innerHTML=marked.parse(md);
     }catch(e){
-        document.getElementById("markdown-output").innerHTML="<p>Error: "+e.message+"</p>";
+        output.innerHTML="<p>Error: "+e.message+"</p>";
     }
 }
 </script>

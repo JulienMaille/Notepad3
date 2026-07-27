@@ -1324,7 +1324,6 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
         return 1; // exit
     }
 
-
     // DPI awareness is set via manifest (PerMonitorV2)
 
     // Check if running with elevated privileges
@@ -14131,18 +14130,27 @@ static HRESULT STDMETHODCALLTYPE NavSink_Invoke(IDispatch* This, DISPID id, REFI
     (void)This; (void)riid; (void)lcid; (void)wFlags; (void)pVarResult; (void)pExcepInfo; (void)puArgErr;
     if (id == DISPID_BEFORENAVIGATE2 && pDispParams && pDispParams->cArgs >= 7) {
         VARIANT* pUrl = &pDispParams->rgvarg[5];
-        if (pUrl->vt == VT_BSTR && pUrl->bstrVal &&
-            (wcsncmp(pUrl->bstrVal, L"http://", 7) == 0 ||
-             wcsncmp(pUrl->bstrVal, L"https://", 8) == 0 ||
-             wcsncmp(pUrl->bstrVal, L"ftp://", 6) == 0 ||
-             wcsncmp(pUrl->bstrVal, L"mailto:", 7) == 0)) {
-            ShellExecuteW(NULL, L"open", pUrl->bstrVal, NULL, NULL, SW_SHOWNORMAL);
-            VARIANT* pCancelVar = &pDispParams->rgvarg[0];
-            if (pCancelVar->vt == (VT_BYREF | VT_VARIANT) && pCancelVar->pvarVal) {
+        VARIANT* pCancelVar = &pDispParams->rgvarg[0];
+        // URL may be VT_BSTR or VT_BYREF|VT_VARIANT wrapping a BSTR
+        LPCWSTR url = NULL;
+        if (pUrl->vt == VT_BSTR && pUrl->bstrVal) {
+            url = pUrl->bstrVal;
+        } else if (pUrl->vt == (VT_BYREF | VT_VARIANT) && pUrl->pvarVal &&
+                   pUrl->pvarVal->vt == VT_BSTR && pUrl->pvarVal->bstrVal) {
+            url = pUrl->pvarVal->bstrVal;
+        }
+        if (url &&
+            (wcsncmp(url, L"http://", 7) == 0 ||
+             wcsncmp(url, L"https://", 8) == 0 ||
+             wcsncmp(url, L"ftp://", 6) == 0 ||
+             wcsncmp(url, L"mailto:", 7) == 0)) {
+            ShellExecuteW(NULL, L"open", url, NULL, NULL, SW_SHOWNORMAL);
+            // Cancel the navigation inside the browser control
+            if (pCancelVar->vt == (VT_BYREF | VT_BOOL) && pCancelVar->pboolVal) {
+                *pCancelVar->pboolVal = VARIANT_TRUE;
+            } else if (pCancelVar->vt == (VT_BYREF | VT_VARIANT) && pCancelVar->pvarVal) {
                 pCancelVar->pvarVal->vt = VT_BOOL;
                 pCancelVar->pvarVal->boolVal = VARIANT_TRUE;
-            } else if (pCancelVar->vt == (VT_BYREF | VT_BOOL) && pCancelVar->pboolVal) {
-                *pCancelVar->pboolVal = VARIANT_TRUE;
             }
         }
     }
@@ -14161,6 +14169,24 @@ static IDispatch* CreateNavSink() {
     return (IDispatch*)s;
 }
 
+static BSTR MarkdownViewer_CreateTemplateUrl()
+{
+    HPATHL hModulePath = Path_Allocate(NULL);
+    Path_GetModuleFilePath(hModulePath);
+    LPCWSTR const exeName = Path_FindFileName(hModulePath);
+    WCHAR escapedName[INTERNET_MAX_URL_LENGTH] = L"";
+    DWORD escapedLength = COUNTOF(escapedName);
+    WCHAR templateUrl[INTERNET_MAX_URL_LENGTH] = L"";
+    BSTR result = NULL;
+    if (exeName && *exeName && SUCCEEDED(UrlEscapeW(exeName, escapedName, &escapedLength, URL_ESCAPE_SEGMENT_ONLY | URL_ESCAPE_AS_UTF8))) {
+        if (SUCCEEDED(StringCchPrintf(templateUrl, COUNTOF(templateUrl), L"res://%s/#23/#%u", escapedName, IDR_MARKDOWN_TEMPLATE))) {
+            result = SysAllocString(templateUrl);
+        }
+    }
+    Path_Release(hModulePath);
+    return result;
+}
+
 static bool InitAtlAxWin()
 {
     static bool bInitialized = false;
@@ -14169,20 +14195,6 @@ static bool InitAtlAxWin()
         return bSuccess;
     }
     bInitialized = true;
-    HKEY hKey = NULL;
-    if (RegCreateKeyEx(HKEY_CURRENT_USER,
-        L"Software\\Microsoft\\Internet Explorer\\Main\\FeatureControl\\FEATURE_BROWSER_EMULATION",
-        0, NULL, 0, KEY_SET_VALUE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
-        DWORD const dwVal = 11001;
-        wchar_t szExe[MAX_PATH] = { 0 };
-        GetModuleFileName(NULL, szExe, COUNTOF(szExe));
-        wchar_t* pExeName = wcsrchr(szExe, L'\\');
-        if (pExeName) {
-            ++pExeName;
-            RegSetValueEx(hKey, pExeName, 0, REG_DWORD, (BYTE*)&dwVal, sizeof(dwVal));
-        }
-        RegCloseKey(hKey);
-    }
     s_hAtlModule = LoadLibrary(L"atl.dll");
     if (s_hAtlModule) {
         pfnAtlAxWinInit = (LPFN_AtlAxWinInit)GetProcAddress(s_hAtlModule, "AtlAxWinInit");
@@ -14331,8 +14343,10 @@ static void MarkdownViewer_UpdateActiveState(HWND hwndMain)
 
                         VARIANT vEmpty;
                         VariantInit(&vEmpty);
-                        BSTR bstrUrl = SysAllocString(L"about:blank");
-                        pWebBrowser->lpVtbl->Navigate(pWebBrowser, bstrUrl, &vEmpty, &vEmpty, &vEmpty, &vEmpty);
+                        BSTR bstrUrl = MarkdownViewer_CreateTemplateUrl();
+                        if (bstrUrl) {
+                            Globals.bTemplateWritten = SUCCEEDED(pWebBrowser->lpVtbl->Navigate(pWebBrowser, bstrUrl, &vEmpty, &vEmpty, &vEmpty, &vEmpty));
+                        }
                         SysFreeString(bstrUrl);
 
                         pWebBrowser->lpVtbl->Release(pWebBrowser);
@@ -14377,7 +14391,7 @@ static void MarkdownViewer_Sync()
                             hr = pDisp->lpVtbl->QueryInterface(pDisp, &IID_IHTMLDocument2, (void**)&pDoc2);
                             pDisp->lpVtbl->Release(pDisp);
                             if (SUCCEEDED(hr) && pDoc2) {
-                                HRSRC hRes = FindResource(Globals.hInstance, MAKEINTRESOURCE(IDR_MARKDOWN_TEMPLATE), RT_RCDATA);
+                                HRSRC hRes = FindResource(Globals.hInstance, MAKEINTRESOURCE(IDR_MARKDOWN_TEMPLATE), RT_HTML);
                                 if (hRes) {
                                     HGLOBAL hGlob = LoadResource(Globals.hInstance, hRes);
                                     if (hGlob) {

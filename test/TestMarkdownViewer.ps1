@@ -36,6 +36,9 @@ public class NP3E2EWin32 {
     public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
+    [DllImport("user32.dll")]
+    public static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
@@ -69,6 +72,17 @@ public class NP3E2EWin32 {
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern uint RegisterWindowMessage(string lpString);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam,
+        uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
+
+    [DllImport("oleacc.dll")]
+    public static extern int ObjectFromLresult(IntPtr lResult, ref Guid riid, IntPtr wParam,
+        [MarshalAs(UnmanagedType.Interface)] out object ppvObject);
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool IsWindowVisible(IntPtr hWnd);
@@ -82,11 +96,25 @@ if (-not ("NP3E2EWin32" -as [type])) {
 # Constants
 $WM_COMMAND = 0x0111
 $WM_CLOSE = 0x0010
+$SMTO_ABORTIFHUNG = 0x0002
 $IDM_VIEW_MARKDOWN = 41066
 
 # Create temporary markdown file
 $TempFile = [System.IO.Path]::GetTempFileName() + ".md"
-"# Test Markdown`r`n`r`nThis is a test of the Notepad3 Markdown Viewer E2E suite." | Out-File -FilePath $TempFile -Encoding utf8
+$MarkdownFixture = @"
+# Test Markdown
+
+This is a test of the Notepad3 Markdown Viewer E2E suite.
+
+| Name | Value |
+| --- | ---: |
+| Table check | 42 |
+
+[Reference check][preview-link]
+
+[preview-link]: https://example.com/
+"@
+$MarkdownFixture | Out-File -FilePath $TempFile -Encoding utf8
 
 $Process = $null
 $hwndMain = [IntPtr]::Zero
@@ -196,37 +224,63 @@ try {
     }
     Write-Host "[PASS] Sizing splitting divides main window width 50/50 (diff: $diff)." -ForegroundColor Green
     
-    # 7a. Verify DOM content is rendered by checking the browser's innerHTML / document title
-    Add-Type -AssemblyName System.Windows.Forms
-    Start-Sleep -Milliseconds 500
-    
+    # 7a. Verify the embedded MSHTML document directly via WM_HTML_GETOBJECT.
+    $wmHtmlGetObject = [NP3E2EWin32]::RegisterWindowMessage("WM_HTML_GETOBJECT")
+    $iidHtmlDocument2 = [Guid]"332C4425-26CB-11D0-B483-00C04FD90119"
     $isRendererVerified = $false
     for ($attempt = 0; $attempt -lt 10; $attempt++) {
         Start-Sleep -Milliseconds 500
+        $document = $null
         try {
-            $ieCount = 0
-            foreach ($ieShell in (New-Object -ComObject Shell.Application).Windows()) {
-                $ieTitle = $ieShell.Document.Title
-                if ($ieTitle -match "Markdown") {
-                    Write-Host "[INFO] IE document title: '$ieTitle'"
+            $script:hwndIEServer = [IntPtr]::Zero
+            [NP3E2EWin32]::EnumChildWindows($hwndBrowser, {
+                param($hwnd, $lparam)
+                $className = New-Object System.Text.StringBuilder 64
+                [NP3E2EWin32]::GetClassName($hwnd, $className, $className.Capacity) | Out-Null
+                if ($className.ToString() -eq "Internet Explorer_Server") {
+                    $script:hwndIEServer = $hwnd
+                    return $false
                 }
-                $bodyHTML = $ieShell.Document.body.innerHTML
-                if ($bodyHTML -and $bodyHTML.Contains("<h1>") -and $bodyHTML.Contains("Test Markdown")) {
-                    Write-Host "[PASS] DOM content verified: Markdown rendered as HTML (h1 + content found)." -ForegroundColor Green
-                    $isRendererVerified = $true
-                    break
-                }
-                $ieCount++
-                if ($ieCount -gt 10) { break }
+                return $true
+            }, [IntPtr]::Zero) | Out-Null
+            if ($hwndIEServer -eq [IntPtr]::Zero) {
+                throw "Internet Explorer_Server window is not ready"
+            }
+
+            $objectResult = [IntPtr]::Zero
+            $sendResult = [NP3E2EWin32]::SendMessageTimeout($hwndIEServer, $wmHtmlGetObject,
+                [IntPtr]::Zero, [IntPtr]::Zero, $SMTO_ABORTIFHUNG, 1000, [ref]$objectResult)
+            if ($sendResult -eq [IntPtr]::Zero -or $objectResult -eq [IntPtr]::Zero) {
+                throw "WM_HTML_GETOBJECT failed"
+            }
+            $hr = [NP3E2EWin32]::ObjectFromLresult($objectResult, [ref]$iidHtmlDocument2,
+                [IntPtr]::Zero, [ref]$document)
+            if ($hr -ne 0 -or $null -eq $document) {
+                throw "ObjectFromLresult failed with HRESULT 0x$($hr.ToString('X8'))"
+            }
+
+            $documentMode = $document.documentMode
+            $bodyHTML = $document.body.innerHTML
+            Write-Host "[INFO] Embedded MSHTML document mode: $documentMode"
+            if ($documentMode -eq 11 -and $bodyHTML -and
+                $bodyHTML -match '<h1[^>]*>' -and $bodyHTML.Contains("Test Markdown") -and
+                $bodyHTML -match '<table[^>]*>' -and $bodyHTML.Contains("Table check") -and
+                $bodyHTML -match 'href=["'']https://example\.com/["'']') {
+                Write-Host "[PASS] IE11 DOM verified: heading, GFM table, and reference link rendered." -ForegroundColor Green
+                $isRendererVerified = $true
             }
         } catch {
             Write-Host "[INFO] DOM check attempt $($attempt + 1) not yet ready..."
+        } finally {
+            if ($null -ne $document -and [Runtime.InteropServices.Marshal]::IsComObject($document)) {
+                [Runtime.InteropServices.Marshal]::FinalReleaseComObject($document) | Out-Null
+            }
         }
         if ($isRendererVerified) { break }
     }
     
     if (-not $isRendererVerified) {
-        Write-Host "[WARN] DOM content verification skipped (shell COM access may be restricted in CI)." -ForegroundColor Yellow
+        throw "ASSERTION FAILED: Embedded Markdown DOM did not render in IE11 mode with heading, table, and reference link."
     }
     
     # 8. Toggle OFF '.md' toolbar button
