@@ -5231,28 +5231,28 @@ void DialogGrepWin(HWND hwnd, LPCWSTR searchPattern)
     }
     else {
 
-        HPATHL hGrepWinIniPath = Path_Copy(hExeFilePath); // side-by-side
-
-        // path to grepWin INI-File
-        Path_RemoveFileSpec(hGrepWinIniPath);
-
         LPCWSTR const wchIniFileName = L"grepwin.ini";
+
+        HPATHL hGrepWinIniPath = NULL;
+
         if (bIsPortableApps) {
-            // PortableApps layout: <app-root>\Data\settings\grepwin.ini
+            // PortableApps layout: <exe-dir>\Data\settings\grepwin.ini
+            hGrepWinIniPath = Path_Copy(hExeFilePath);
+            Path_RemoveFileSpec(hGrepWinIniPath);
             Path_Append(hGrepWinIniPath, L"Data");
             Path_Append(hGrepWinIniPath, L"settings");
-        }
-        Path_Append(hGrepWinIniPath, wchIniFileName);
-        if (Path_IsRelative(hGrepWinIniPath)) {
-            Path_Reset(hGrepWinIniPath, Path_Get(hGrepWinDir));
-            if (bIsPortableApps) {
-                Path_Append(hGrepWinIniPath, L"Data");
-                Path_Append(hGrepWinIniPath, L"settings");
-            }
             Path_Append(hGrepWinIniPath, wchIniFileName);
+        } else {
+            // Always use %APPDATA% (exe dir may be write-protected)
+            hGrepWinIniPath = Path_Allocate(NULL);
+            if (Path_GetKnownFolder(&FOLDERID_RoamingAppData, hGrepWinIniPath)) {
+                Path_Append(hGrepWinIniPath, L"Rizonesoft");
+                Path_Append(hGrepWinIniPath, L"Notepad3");
+                Path_Append(hGrepWinIniPath, L"grepWin");
+                Path_Append(hGrepWinIniPath, wchIniFileName);
+            }
         }
 
-        
         // INI-File sections for cmdln settings
         const WCHAR* const np3cmdSection = L"np3cmds";
 
