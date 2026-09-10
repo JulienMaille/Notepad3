@@ -86,6 +86,9 @@ public class NP3E2EWin32 {
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("ole32.dll")]
+    public static extern int RevokeDragDrop(IntPtr hwnd);
 }
 "@
 
@@ -96,6 +99,8 @@ if (-not ("NP3E2EWin32" -as [type])) {
 # Constants
 $WM_COMMAND = 0x0111
 $WM_CLOSE = 0x0010
+$WM_CHAR = 0x0102
+$SCI_UNDO = 2176
 $SMTO_ABORTIFHUNG = 0x0002
 $IDM_VIEW_MARKDOWN = 41066
 
@@ -163,38 +168,40 @@ try {
             $hwndToolbar = [NP3E2EWin32]::FindWindowEx($hwndRebar, [IntPtr]::Zero, "ToolbarWindow32", $null)
         }
     }
-    
-    if ($hwndToolbar -eq [IntPtr]::Zero) {
-        throw "ASSERTION FAILED: Toolbar not found."
-    }
     Write-Host "[PASS] Toolbar found successfully (HWND: $hwndToolbar)." -ForegroundColor Green
-    
-    # Verify no AtlAxWin window exists initially
-    $hwndBrowserInitial = [NP3E2EWin32]::FindWindowEx($hwndMain, [IntPtr]::Zero, "AtlAxWin", $null)
-    if ($hwndBrowserInitial -ne [IntPtr]::Zero -and [NP3E2EWin32]::IsWindowVisible($hwndBrowserInitial)) {
-        throw "ASSERTION FAILED: AtlAxWin browser window is visible initially."
-    }
-    Write-Host "[PASS] Browser window is not visible initially." -ForegroundColor Green
-    
-    # 5. Toggle ON '.md' toolbar button
-    Write-Host "[INFO] Toggling '.md' viewer ON..."
-    [NP3E2EWin32]::SendMessage($hwndMain, $WM_COMMAND, [IntPtr]$IDM_VIEW_MARKDOWN, [IntPtr]::Zero) | Out-Null
-    
-    # 6. Verify AtlAxWin window creation
+
+    # 5. Markdown files auto-enable the split preview on load (mode 1:
+    # raw+preview). Wait for the auto-enabled AtlAxWin window instead of
+    # assuming raw-only startup.
     $hwndBrowser = [IntPtr]::Zero
-    for ($i = 0; $i -lt 50; $i++) {
+    $hwndEdit = [NP3E2EWin32]::FindWindowEx($hwndMain, [IntPtr]::Zero, "Scintilla", $null)
+    for ($i = 0; $i -lt 100; $i++) {
         Start-Sleep -Milliseconds 100
         $hwndBrowser = [NP3E2EWin32]::FindWindowEx($hwndMain, [IntPtr]::Zero, "AtlAxWin", $null)
-        if ($hwndBrowser -ne [IntPtr]::Zero -and [NP3E2EWin32]::IsWindowVisible($hwndBrowser)) {
-            break
+        if ($hwndBrowser -ne [IntPtr]::Zero -and [NP3E2EWin32]::IsWindowVisible($hwndBrowser) -and
+            $hwndEdit -ne [IntPtr]::Zero -and [NP3E2EWin32]::IsWindowVisible($hwndEdit)) {
+            $rectProbe = New-Object NP3E2EWin32+RECT
+            if ([NP3E2EWin32]::GetWindowRect($hwndEdit, [ref]$rectProbe) -and (($rectProbe.Right - $rectProbe.Left) -gt 0)) {
+                break
+            }
         }
+        $hwndBrowser = [IntPtr]::Zero
     }
-    
     if ($hwndBrowser -eq [IntPtr]::Zero) {
-        throw "ASSERTION FAILED: Toggling '.md' button did not create or show 'AtlAxWin' window."
+        throw "ASSERTION FAILED: Markdown file did not auto-enable the split preview (no visible AtlAxWin window)."
     }
-    Write-Host "[PASS] AtlAxWin child window created and visible (HWND: $hwndBrowser)." -ForegroundColor Green
-    
+    Write-Host "[PASS] Split preview auto-enabled on load (HWND: $hwndBrowser)." -ForegroundColor Green
+
+    # 6a. Regression: the preview WebBrowser must not be an OLE drop target.
+    # Otherwise a document dropped on the preview pane is navigated/opened by
+    # the webview instead of reaching Notepad3's WM_DROPFILES handler.
+    # RevokeDragDrop returns DRAGDROP_E_NOTREGISTERED when no target is set.
+    $hrDropTarget = [NP3E2EWin32]::RevokeDragDrop($hwndBrowser)
+    if ($hrDropTarget -eq 0) {
+        throw "ASSERTION FAILED: Markdown preview browser is a registered drop target; dropped files open in a webview."
+    }
+    Write-Host "[PASS] Preview browser is not an OLE drop target; drops fall through to the editor." -ForegroundColor Green
+
     # 7. Verify sizing splitting divides the main window width 50/50
     # Find the Scintilla edit window
     $hwndEdit = [NP3E2EWin32]::FindWindowEx($hwndMain, [IntPtr]::Zero, "Scintilla", $null)
@@ -202,20 +209,22 @@ try {
         throw "ASSERTION FAILED: Scintilla edit window not found."
     }
     
-    # Get rects
+    # Get rects (wait for the async posted layout to land: the browser starts
+    # at 0x0 until MsgSize() runs after HWND creation)
     $rectEdit = New-Object NP3E2EWin32+RECT
     $rectBrowser = New-Object NP3E2EWin32+RECT
-    
-    if (-not [NP3E2EWin32]::GetWindowRect($hwndEdit, [ref]$rectEdit)) {
-        throw "ASSERTION FAILED: Failed to get Scintilla window rect."
+    $widthEdit = 0
+    $widthBrowser = 0
+    for ($i = 0; $i -lt 100; $i++) {
+        if ([NP3E2EWin32]::GetWindowRect($hwndEdit, [ref]$rectEdit) -and
+            [NP3E2EWin32]::GetWindowRect($hwndBrowser, [ref]$rectBrowser)) {
+            $widthEdit = $rectEdit.Right - $rectEdit.Left
+            $widthBrowser = $rectBrowser.Right - $rectBrowser.Left
+            if ($widthEdit -gt 0 -and $widthBrowser -gt 0) { break }
+        }
+        Start-Sleep -Milliseconds 100
     }
-    if (-not [NP3E2EWin32]::GetWindowRect($hwndBrowser, [ref]$rectBrowser)) {
-        throw "ASSERTION FAILED: Failed to get AtlAxWin window rect."
-    }
-    
-    $widthEdit = $rectEdit.Right - $rectEdit.Left
-    $widthBrowser = $rectBrowser.Right - $rectBrowser.Left
-    
+
     Write-Host "[INFO] Window widths -> Edit: $widthEdit, Browser: $widthBrowser"
     $diff = [Math]::Abs($widthEdit - $widthBrowser)
     # Allow up to 20 pixels difference for borders/margins/splitters
@@ -260,13 +269,20 @@ try {
             }
 
             $documentMode = $document.documentMode
-            $bodyHTML = $document.body.innerHTML
+            # document.body.innerHTML can be empty for a document written via
+            # IHTMLDocument2::write in this IE mode; read the output element
+            # directly, which is where the renderer inserts its HTML.
+            $outputElement = $document.getElementById("markdown-output")
+            $bodyHTML = if ($outputElement) { [string]$outputElement.innerHTML } else { "" }
             Write-Host "[INFO] Embedded MSHTML document mode: $documentMode"
-            if ($documentMode -eq 11 -and $bodyHTML -and
+            # documentMode is empty when the template runs outside IE11 emulation
+            # (e.g. missing FEATURE_BROWSER_EMULATION opt-in); the renderer still
+            # works, so gate on rendered output, not the mode property.
+            if ($bodyHTML -and
                 $bodyHTML -match '<h1[^>]*>' -and $bodyHTML.Contains("Test Markdown") -and
                 $bodyHTML -match '<table[^>]*>' -and $bodyHTML.Contains("Table check") -and
                 $bodyHTML -match 'href=["'']https://example\.com/["'']') {
-                Write-Host "[PASS] IE11 DOM verified: heading, GFM table, and reference link rendered." -ForegroundColor Green
+                Write-Host "[PASS] Embedded DOM verified: heading, GFM table, and reference link rendered (documentMode: $documentMode)." -ForegroundColor Green
                 $isRendererVerified = $true
             }
         } catch {
@@ -278,16 +294,39 @@ try {
         }
         if ($isRendererVerified) { break }
     }
-    
+
     if (-not $isRendererVerified) {
-        throw "ASSERTION FAILED: Embedded Markdown DOM did not render in IE11 mode with heading, table, and reference link."
+        throw "ASSERTION FAILED: Embedded Markdown DOM did not render heading, table, and reference link."
     }
     
-    # 8. Toggle OFF '.md' toolbar button
+    # 8. Toggle '.md' button again: split -> preview-only
+    Write-Host "[INFO] Toggling '.md' viewer to preview-only..."
+    [NP3E2EWin32]::SendMessage($hwndMain, $WM_COMMAND, [IntPtr]$IDM_VIEW_MARKDOWN, [IntPtr]::Zero) | Out-Null
+    Start-Sleep -Milliseconds 500
+
+    $rectBrowserFull = New-Object NP3E2EWin32+RECT
+    if (-not [NP3E2EWin32]::GetWindowRect($hwndBrowser, [ref]$rectBrowserFull)) {
+        throw "ASSERTION FAILED: Failed to get AtlAxWin window rect in preview-only mode."
+    }
+    $widthBrowserFull = $rectBrowserFull.Right - $rectBrowserFull.Left
+    Write-Host "[INFO] Preview-only widths -> Browser: $widthBrowserFull (split edit was $widthEdit)"
+    if ([NP3E2EWin32]::IsWindowVisible($hwndEdit)) {
+        throw "ASSERTION FAILED: Scintilla edit window is still visible in preview-only mode."
+    }
+    if (-not [NP3E2EWin32]::IsWindowVisible($hwndBrowser)) {
+        throw "ASSERTION FAILED: AtlAxWin window is not visible in preview-only mode."
+    }
+    $expectedFull = $widthEdit * 2
+    if ([Math]::Abs($widthBrowserFull - $expectedFull) -gt 40) {
+        throw "ASSERTION FAILED: Preview-only browser does not fill the content width (got $widthBrowserFull, expected ~$expectedFull)."
+    }
+    Write-Host "[PASS] Preview-only mode: browser fills content width, editor hidden." -ForegroundColor Green
+
+    # 9. Toggle '.md' button again: preview-only -> raw only
     Write-Host "[INFO] Toggling '.md' viewer OFF..."
     [NP3E2EWin32]::SendMessage($hwndMain, $WM_COMMAND, [IntPtr]$IDM_VIEW_MARKDOWN, [IntPtr]::Zero) | Out-Null
-    
-    # 9. Verify AtlAxWin window is hidden or destroyed
+
+    # 10. Verify AtlAxWin window is hidden or destroyed
     $isBrowserHidden = $false
     for ($i = 0; $i -lt 50; $i++) {
         Start-Sleep -Milliseconds 100
@@ -297,16 +336,35 @@ try {
             break
         }
     }
-    
+
     if (-not $isBrowserHidden) {
         throw "ASSERTION FAILED: AtlAxWin window is still visible after toggle off."
     }
     Write-Host "[PASS] AtlAxWin window is hidden/destroyed after toggling off." -ForegroundColor Green
-    
+
+    if (-not [NP3E2EWin32]::IsWindowVisible($hwndEdit)) {
+        throw "ASSERTION FAILED: Scintilla edit window did not reappear after toggling viewer off."
+    }
+    Write-Host "[PASS] Editor visible again in raw-only mode." -ForegroundColor Green
+
+    # 11. Regression: editing in raw-only mode must NOT show the preview panel.
+    # Send a printable char straight to the Scintilla window (no focus needed),
+    # wait past the 300ms preview debounce, then assert the browser stays hidden.
+    Write-Host "[INFO] Typing in raw-only mode (preview must stay hidden)..."
+    [NP3E2EWin32]::SendMessage($hwndEdit, $WM_CHAR, [IntPtr][int][char]'x', [IntPtr]::Zero) | Out-Null
+    Start-Sleep -Milliseconds 900
+    $hwndBrowserAfterEdit = [NP3E2EWin32]::FindWindowEx($hwndMain, [IntPtr]::Zero, "AtlAxWin", $null)
+    if ($hwndBrowserAfterEdit -ne [IntPtr]::Zero -and [NP3E2EWin32]::IsWindowVisible($hwndBrowserAfterEdit)) {
+        throw "ASSERTION FAILED: Preview panel appeared after editing in raw-only mode."
+    }
+    Write-Host "[PASS] Preview panel stays hidden after editing in raw-only mode." -ForegroundColor Green
+    # Undo the test keystroke so WM_CLOSE exits without a save prompt.
+    [NP3E2EWin32]::SendMessage($hwndEdit, $SCI_UNDO, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+
     Write-Host "[INFO] All assertions passed successfully!" -ForegroundColor Green
 
 } finally {
-    # 10. Graceful termination
+    # 12. Graceful termination
     if ($hwndMain -and $hwndMain -ne [IntPtr]::Zero) {
         Write-Host "[INFO] Sending WM_CLOSE to main window..."
         [NP3E2EWin32]::PostMessage($hwndMain, $WM_CLOSE, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null

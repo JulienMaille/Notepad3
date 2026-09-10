@@ -606,7 +606,7 @@ typedef struct GLOBALS_T {
 
     FR_STATES FindReplaceMatchFoundState;
     HWND      hwndBrowser;
-    bool      bMarkdownViewerActive;
+    int       iMarkdownViewerMode;  // 0 = raw only, 1 = raw+preview, 2 = preview only
     bool      bTemplateWritten;
 #define ID_MARKDOWNTIMER 0x900D
 
