@@ -378,6 +378,8 @@ static BOOL CALLBACK _EnumTopmostWndProc(HWND hwnd, LPARAM lParam);
 static HPATHL _ResolveSelectionForOpen(int* lineNum, bool* isDir);
 
 static void MarkdownViewer_UpdateActiveState(HWND hwndMain);
+static void MarkdownViewer_SetMode(HWND hwndMain, int mode);
+static void _MarkdownViewer_ShowEdit(bool bShow);
 static void MarkdownViewer_Sync();
 static void MarkdownViewer_Cleanup();
 static bool _IsMarkdownFile();
@@ -931,7 +933,7 @@ static void _InitGlobals()
     Globals.bMinimizedToTray = false;
     Globals.uCurrentThemeIndex = 0;
     Globals.hwndBrowser = NULL;
-    Globals.bMarkdownViewerActive = false;
+    Globals.iMarkdownViewerMode = 0;  // 0 = raw only, 1 = raw+preview, 2 = preview only
     Globals.bTemplateWritten = false;
 
 
@@ -3989,23 +3991,32 @@ LRESULT MsgSize(HWND hwnd, WPARAM wParam, LPARAM lParam)
     }
 
 
-    HDWP const hdwp = BeginDeferWindowPos(Globals.bMarkdownViewerActive && Globals.hwndBrowser ? 3 : 2);
+    int const iMdMode = ((Globals.iMarkdownViewerMode != 0) && Globals.hwndBrowser) ? Globals.iMarkdownViewerMode : 0;
+    HDWP const hdwp = BeginDeferWindowPos(3);
 
-    if (Globals.bMarkdownViewerActive && Globals.hwndBrowser) {
+    if (iMdMode == 1) {
         int const cxEdit = cx / 2;
         int const cxBrowser = cx - cxEdit;
         int const xBrowser = x + cxEdit;
 
-        DeferWindowPos(hdwp, s_hwndEditFrame, NULL, x, y, cxEdit, cy, SWP_NOZORDER | SWP_NOACTIVATE);
+        DeferWindowPos(hdwp, s_hwndEditFrame, NULL, x, y, cxEdit, cy, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
         DeferWindowPos(hdwp, g_hwndEditWindow, s_hwndEditFrame,
                        x+s_cxEditFrame, y+s_cyEditFrame, cxEdit-2*s_cxEditFrame, cy-2*s_cyEditFrame,
-                       SWP_NOZORDER | SWP_NOACTIVATE);
-        DeferWindowPos(hdwp, Globals.hwndBrowser, NULL, xBrowser, y, cxBrowser, cy, SWP_NOZORDER | SWP_NOACTIVATE);
+                       SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        DeferWindowPos(hdwp, Globals.hwndBrowser, NULL, xBrowser, y, cxBrowser, cy, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    } else if (iMdMode == 2) {
+        DeferWindowPos(hdwp, s_hwndEditFrame, NULL, x, y, 0, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+        DeferWindowPos(hdwp, g_hwndEditWindow, s_hwndEditFrame,
+                       x, y, 0, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+        DeferWindowPos(hdwp, Globals.hwndBrowser, NULL, x, y, cx, cy, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     } else {
-        DeferWindowPos(hdwp, s_hwndEditFrame, NULL, x, y, cx, cy, SWP_NOZORDER | SWP_NOACTIVATE);
+        DeferWindowPos(hdwp, s_hwndEditFrame, NULL, x, y, cx, cy, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
         DeferWindowPos(hdwp, g_hwndEditWindow, s_hwndEditFrame,
                        x+s_cxEditFrame, y+s_cyEditFrame, cx-2*s_cxEditFrame, cy-2*s_cyEditFrame,
-                       SWP_NOZORDER | SWP_NOACTIVATE);
+                       SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        if (Globals.hwndBrowser) {
+            DeferWindowPos(hdwp, Globals.hwndBrowser, NULL, x, y, 0, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+        }
     }
 
     EndDeferWindowPos(hdwp);
@@ -5638,7 +5649,7 @@ LRESULT MsgInitMenu(HWND hwnd, WPARAM wParam, LPARAM lParam)
     {
         bool const isMarkdown = _IsMarkdownFile();
         EnableCmd(hmenu, IDM_VIEW_MARKDOWN, isMarkdown);
-        CheckCmd(hmenu, IDM_VIEW_MARKDOWN, Globals.bMarkdownViewerActive);
+        CheckCmd(hmenu, IDM_VIEW_MARKDOWN, (Globals.iMarkdownViewerMode != 0));
     }
 
     return FALSE;
@@ -6320,7 +6331,7 @@ static bool _HandleEditBasicCommands(HWND hwnd, UINT umsg, WPARAM wParam, LPARAM
             SciCall_Paste();
             EndUndoTransAction();
             RestoreNotifyEvents();
-            if (Globals.bMarkdownViewerActive) {
+            if (Globals.iMarkdownViewerMode != 0) {
                 SetTimer(hwnd, ID_MARKDOWNTIMER, 300, MarkdownTimerProc);
             }
         }
@@ -7270,12 +7281,7 @@ static bool _HandleViewAndSettingsCommands(HWND hwnd, UINT umsg, WPARAM wParam, 
 
     case IDM_VIEW_MARKDOWN:
         if (_IsMarkdownFile()) {
-            Globals.bMarkdownViewerActive = !Globals.bMarkdownViewerActive;
-            MarkdownViewer_UpdateActiveState(hwnd);
-            RECT rc;
-            GetClientRect(hwnd, &rc);
-            SendMessage(hwnd, WM_SIZE, 0, MAKELPARAM(rc.right - rc.left, rc.bottom - rc.top));
-            UpdateToolbar();
+            MarkdownViewer_SetMode(hwnd, (Globals.iMarkdownViewerMode + 1) % 3);
         }
         break;
 
@@ -10222,14 +10228,10 @@ static LRESULT _MsgNotifyFromEdit(HWND hwnd, const SCNotification* const scn)
         /// fire once per UI-update cycle instead of once per raw edit (see
         /// SCN_UPDATEUI case below) - cheaper for multi-cursor / bulk edits.
         if (bModified) {
-            if (Globals.bMarkdownViewerActive) {
+            if (Globals.iMarkdownViewerMode != 0) {
                 SetTimer(hwnd, ID_MARKDOWNTIMER, 300, MarkdownTimerProc);
-            } else if (_IsMarkdownFile()) {
-                Globals.bMarkdownViewerActive = true;
-                MarkdownViewer_UpdateActiveState(hwnd);
-                _TriggerLayoutResize(hwnd);
-                UpdateToolbar();
             }
+            // NOTE: in raw-only mode (0) an edit must NOT switch the viewer on.
             int const iModType = scn->modificationType;
             if (scn->linesAdded != 0) {
                 EditBookmarkAdjustNavigation(SciCall_LineFromPosition(scn->position), scn->linesAdded);
@@ -11482,8 +11484,25 @@ static void  _UpdateToolbarDelayed()
 
     {
         bool const isMarkdown = _IsMarkdownFile();
+        if (!isMarkdown && (Globals.iMarkdownViewerMode != 0)) {
+            // Lexer switched away from Markdown while preview visible:
+            // fall back to raw mode so the editor cannot stay hidden.
+            Globals.iMarkdownViewerMode = 0;
+            if (Globals.hwndBrowser) {
+                ShowWindow(Globals.hwndBrowser, SW_HIDE);
+            }
+            _MarkdownViewer_ShowEdit(true);
+            _TriggerLayoutResize(Globals.hwndMain);
+        }
+        // Tri-state button: unchecked = raw only, checked = raw+preview,
+        // checked+indeterminate = preview only.
         EnableTool(Globals.hwndToolbar, IDT_VIEW_MARKDOWN, isMarkdown);
-        CheckTool(Globals.hwndToolbar, IDT_VIEW_MARKDOWN, Globals.bMarkdownViewerActive);
+        CheckTool(Globals.hwndToolbar, IDT_VIEW_MARKDOWN, (Globals.iMarkdownViewerMode != 0));
+        LRESULT const mdState = SendMessage(Globals.hwndToolbar, TB_GETSTATE, IDT_VIEW_MARKDOWN, 0);
+        LRESULT const mdNewState = (Globals.iMarkdownViewerMode == 2) ? (mdState | TBSTATE_INDETERMINATE) : (mdState & ~TBSTATE_INDETERMINATE);
+        if (mdNewState != mdState) {
+            SendMessage(Globals.hwndToolbar, TB_SETSTATE, IDT_VIEW_MARKDOWN, MAKELONG(mdNewState, 0));
+        }
     }
 }
 
@@ -12561,11 +12580,8 @@ bool FileLoad(const HPATHL hfile_pth, const FileLoadFlags fLoadFlags, const DocP
             ShowZoomCallTip();
         }
 
-        if (Globals.bMarkdownViewerActive) {
-            Globals.bMarkdownViewerActive = false;
-            MarkdownViewer_UpdateActiveState(Globals.hwndMain);
-            _TriggerLayoutResize(Globals.hwndMain);
-            UpdateToolbar();
+        if (Globals.iMarkdownViewerMode != 0) {
+            MarkdownViewer_SetMode(Globals.hwndMain, 0);
         }
 
         return true;
@@ -12827,17 +12843,11 @@ bool FileLoad(const HPATHL hfile_pth, const FileLoadFlags fLoadFlags, const DocP
 
     if (fSuccess) {
         bool const isMarkdown = _IsMarkdownFile();
-        if (isMarkdown && !Globals.bMarkdownViewerActive) {
-            Globals.bMarkdownViewerActive = true;
-            MarkdownViewer_UpdateActiveState(Globals.hwndMain);
-            _TriggerLayoutResize(Globals.hwndMain);
-            UpdateToolbar();
-        } else if (!isMarkdown && Globals.bMarkdownViewerActive) {
-            Globals.bMarkdownViewerActive = false;
-            MarkdownViewer_UpdateActiveState(Globals.hwndMain);
-            _TriggerLayoutResize(Globals.hwndMain);
-            UpdateToolbar();
-        } else if (Globals.bMarkdownViewerActive) {
+        if (isMarkdown && (Globals.iMarkdownViewerMode == 0)) {
+            MarkdownViewer_SetMode(Globals.hwndMain, 1);
+        } else if (!isMarkdown && (Globals.iMarkdownViewerMode != 0)) {
+            MarkdownViewer_SetMode(Globals.hwndMain, 0);
+        } else if (Globals.iMarkdownViewerMode != 0) {
             MarkdownViewer_Sync();
         }
     }
@@ -14762,12 +14772,22 @@ static bool _BrowserCopyToClipboard()
     return true;
 }
 
+static void MarkdownViewer_SetMode(HWND hwndMain, int mode)
+{
+    Globals.iMarkdownViewerMode = mode;
+    MarkdownViewer_UpdateActiveState(hwndMain);
+    // Layout must run after the browser HWND exists: MsgSize() gates on
+    // hwndBrowser, so post the resize instead of sending it synchronously.
+    _TriggerLayoutResize(hwndMain);
+    UpdateToolbar();
+}
+
 static void MarkdownViewer_UpdateActiveState(HWND hwndMain)
 {
-    if (Globals.bMarkdownViewerActive) {
+    if (Globals.iMarkdownViewerMode != 0) {
         if (!Globals.hwndBrowser) {
             if (!InitAtlAxWin()) {
-                Globals.bMarkdownViewerActive = false;
+                Globals.iMarkdownViewerMode = 0;
                 UpdateToolbar();
                 return;
             }
@@ -14791,6 +14811,10 @@ static void MarkdownViewer_UpdateActiveState(HWND hwndMain)
                     if (SUCCEEDED(hr) && pWebBrowser) {
                         pWebBrowser->lpVtbl->put_Silent(pWebBrowser, VARIANT_TRUE);
                         pWebBrowser->lpVtbl->put_RegisterAsBrowser(pWebBrowser, VARIANT_FALSE);
+                        // The control is a drop target by default and would open dropped
+                        // files in its own webview. Let drops fall through to the main
+                        // window's WM_DROPFILES handler so they load in the editor.
+                        pWebBrowser->lpVtbl->put_RegisterAsDropTarget(pWebBrowser, VARIANT_FALSE);
 
                         Globals.bTemplateWritten = false;
 
@@ -14823,20 +14847,36 @@ static void MarkdownViewer_UpdateActiveState(HWND hwndMain)
                     pUnk->lpVtbl->Release(pUnk);
                 }
             }
-        } else {
-            ShowWindow(Globals.hwndBrowser, SW_SHOW);
+        }
+        ShowWindow(Globals.hwndBrowser, SW_SHOW);
+        bool const bPreviewOnly = (Globals.iMarkdownViewerMode == 2);
+        _MarkdownViewer_ShowEdit(!bPreviewOnly);
+        if (bPreviewOnly) {
+            SetFocus(Globals.hwndBrowser);
         }
         MarkdownViewer_Sync();
     } else {
         if (Globals.hwndBrowser) {
             ShowWindow(Globals.hwndBrowser, SW_HIDE);
         }
+        _MarkdownViewer_ShowEdit(true);
+        HWND const hFocus = GetFocus();
+        if (hFocus && (hFocus == Globals.hwndBrowser || IsChild(Globals.hwndBrowser, hFocus))) {
+            SetFocus(Globals.hwndEdit);
+        }
     }
+}
+
+static void _MarkdownViewer_ShowEdit(bool bShow)
+{
+    int const nCmd = bShow ? SW_SHOW : SW_HIDE;
+    ShowWindow(s_hwndEditFrame, nCmd);
+    ShowWindow(Globals.hwndEdit, nCmd);
 }
 
 static void MarkdownViewer_Sync()
 {
-    if (!Globals.bMarkdownViewerActive || !Globals.hwndBrowser) {
+    if ((Globals.iMarkdownViewerMode == 0) || !Globals.hwndBrowser) {
         return;
     }
     IUnknown* pUnk = NULL;
