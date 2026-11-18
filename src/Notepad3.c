@@ -14648,6 +14648,29 @@ static IDispatch* CreateNavSink() {
     return (IDispatch*)s;
 }
 
+// Base URL for relative image/link paths in the rendered document: the
+// directory of the current file as a file:// URL with a trailing slash.
+static BSTR MarkdownViewer_CreateBaseUrl()
+{
+    BSTR result = NULL;
+    if (Path_IsEmpty(Paths.CurrentFile)) {
+        return result;
+    }
+    HPATHL hDir = Path_Copy(Paths.CurrentFile);
+    Path_RemoveFileSpec(hDir);
+    WCHAR url[INTERNET_MAX_URL_LENGTH] = L"";
+    DWORD urlLength = COUNTOF(url);
+    if (SUCCEEDED(UrlCreateFromPathW(Path_Get(hDir), url, &urlLength, 0))) {
+        size_t const len = wcslen(url);
+        if ((len > 0) && (url[len - 1] != L'/')) {
+            StringCchCat(url, COUNTOF(url), L"/");
+        }
+        result = SysAllocString(url);
+    }
+    Path_Release(hDir);
+    return result;
+}
+
 static BSTR MarkdownViewer_CreateTemplateUrl()
 {
     HPATHL hModulePath = Path_Allocate(NULL);
@@ -14946,6 +14969,25 @@ static void MarkdownViewer_Sync()
                                 IHTMLDocument3* pDoc3 = NULL;
                                 hr = pDoc2->lpVtbl->QueryInterface(pDoc2, &IID_IHTMLDocument3, (void**)&pDoc3);
                                 if (SUCCEEDED(hr) && pDoc3) {
+                                    // Resolve relative image paths against the current
+                                    // file's directory instead of the res:// template URL.
+                                    IHTMLElement* pBaseElem = NULL;
+                                    BSTR bstrBaseId = SysAllocString(L"md-base");
+                                    if (bstrBaseId &&
+                                        SUCCEEDED(pDoc3->lpVtbl->getElementById(pDoc3, bstrBaseId, &pBaseElem)) && pBaseElem) {
+                                        IHTMLBaseElement* pBase = NULL;
+                                        if (SUCCEEDED(pBaseElem->lpVtbl->QueryInterface(pBaseElem, &IID_IHTMLBaseElement, (void**)&pBase)) && pBase) {
+                                            BSTR bstrBaseUrl = MarkdownViewer_CreateBaseUrl();
+                                            if (bstrBaseUrl) {
+                                                pBase->lpVtbl->put_href(pBase, bstrBaseUrl);
+                                                SysFreeString(bstrBaseUrl);
+                                            }
+                                            pBase->lpVtbl->Release(pBase);
+                                        }
+                                        pBaseElem->lpVtbl->Release(pBaseElem);
+                                    }
+                                    SysFreeString(bstrBaseId);
+
                                     IHTMLElement* pElem = NULL;
                                     BSTR bstrId = SysAllocString(L"markdown-input");
                                     hr = pDoc3->lpVtbl->getElementById(pDoc3, bstrId, &pElem);
