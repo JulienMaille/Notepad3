@@ -118,6 +118,8 @@ This is a test of the Notepad3 Markdown Viewer E2E suite.
 [Reference check][preview-link]
 
 [preview-link]: https://example.com/
+
+![Local image](img.png)
 "@
 $MarkdownFixture | Out-File -FilePath $TempFile -Encoding utf8
 
@@ -274,6 +276,8 @@ try {
             # directly, which is where the renderer inserts its HTML.
             $outputElement = $document.getElementById("markdown-output")
             $bodyHTML = if ($outputElement) { [string]$outputElement.innerHTML } else { "" }
+            $baseElement = $document.getElementById("md-base")
+            $baseHref = if ($baseElement) { [string]$baseElement.href } else { "" }
             Write-Host "[INFO] Embedded MSHTML document mode: $documentMode"
             # documentMode is empty when the template runs outside IE11 emulation
             # (e.g. missing FEATURE_BROWSER_EMULATION opt-in); the renderer still
@@ -283,6 +287,7 @@ try {
                 $bodyHTML -match '<table[^>]*>' -and $bodyHTML.Contains("Table check") -and
                 $bodyHTML -match 'href=["'']https://example\.com/["'']') {
                 Write-Host "[PASS] Embedded DOM verified: heading, GFM table, and reference link rendered (documentMode: $documentMode)." -ForegroundColor Green
+                $script:verifiedBaseHref = $baseHref
                 $isRendererVerified = $true
             }
         } catch {
@@ -298,7 +303,15 @@ try {
     if (-not $isRendererVerified) {
         throw "ASSERTION FAILED: Embedded Markdown DOM did not render heading, table, and reference link."
     }
-    
+
+    # Relative image paths must resolve against the markdown file's directory,
+    # not the res:// URL used to host the template.
+    $expectedBase = ([Uri](Split-Path $TempFile -Parent)).AbsoluteUri.TrimEnd('/')
+    if ($verifiedBaseHref.TrimEnd('/') -ne $expectedBase) {
+        throw "ASSERTION FAILED: base href '$verifiedBaseHref' does not point at the markdown file's directory '$expectedBase'."
+    }
+    Write-Host "[PASS] Relative images resolve against the markdown file's directory ($verifiedBaseHref)." -ForegroundColor Green
+
     # 8. Toggle '.md' button again: split -> preview-only
     Write-Host "[INFO] Toggling '.md' viewer to preview-only..."
     [NP3E2EWin32]::SendMessage($hwndMain, $WM_COMMAND, [IntPtr]$IDM_VIEW_MARKDOWN, [IntPtr]::Zero) | Out-Null
