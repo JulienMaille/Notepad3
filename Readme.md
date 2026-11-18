@@ -1,5 +1,10 @@
 # Notepad3
 
+> [!IMPORTANT]
+> 🔧 Maintained fork with **Markdown** support
+> 
+> <a href="https://github.com/JulienMaille/Notepad3/actions/workflows/build.yml?query=branch%3Ainstaller-meta"><img src="https://img.shields.io/github/actions/workflow/status/JulienMaille/Notepad3/build.yml?branch=installer-meta&amp;style=flat-square&amp;label=Installer%20CI" alt="Installer CI"></a>
+
 **A fast, lightweight, Scintilla-based text editor for Windows**
 
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg?style=flat-square)](https://opensource.org/licenses/BSD-3-Clause)
