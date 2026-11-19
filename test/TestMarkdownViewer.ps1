@@ -111,15 +111,29 @@ $MarkdownFixture = @"
 
 This is a test of the Notepad3 Markdown Viewer E2E suite.
 
+Extended syntax: H~2~O, X^2^, ==highlighted==, ~~struck~~.
+
+| Left | Center | Right |
+| :--- | :----: | ----: |
+| a | b | 42 |
+
 | Name | Value |
 | --- | ---: |
 | Table check | 42 |
 
 [Reference check][preview-link]
 
+[Jump to deep target](#deep-target)
+
 [preview-link]: https://example.com/
 
 ![Local image](img.png)
+
+<div style="height:4000px"></div>
+
+## Deep Target
+
+<div id="tail-filler" style="height:4000px"></div>
 "@
 $MarkdownFixture | Out-File -FilePath $TempFile -Encoding utf8
 
@@ -239,6 +253,7 @@ try {
     $wmHtmlGetObject = [NP3E2EWin32]::RegisterWindowMessage("WM_HTML_GETOBJECT")
     $iidHtmlDocument2 = [Guid]"332C4425-26CB-11D0-B483-00C04FD90119"
     $isRendererVerified = $false
+    $script:anchorError = $null
     for ($attempt = 0; $attempt -lt 10; $attempt++) {
         Start-Sleep -Milliseconds 500
         $document = $null
@@ -285,10 +300,49 @@ try {
             if ($bodyHTML -and
                 $bodyHTML -match '<h1[^>]*>' -and $bodyHTML.Contains("Test Markdown") -and
                 $bodyHTML -match '<table[^>]*>' -and $bodyHTML.Contains("Table check") -and
-                $bodyHTML -match 'href=["'']https://example\.com/["'']') {
-                Write-Host "[PASS] Embedded DOM verified: heading, GFM table, and reference link rendered (documentMode: $documentMode)." -ForegroundColor Green
+                $bodyHTML -match 'href=["'']https://example\.com/["'']' -and
+                $bodyHTML -match '<sub[^>]*>2</sub>' -and
+                $bodyHTML -match '<sup[^>]*>2</sup>' -and
+                $bodyHTML -match '<mark[^>]*>highlighted</mark>' -and
+                $bodyHTML -match '<del[^>]*>struck</del>' -and
+                $bodyHTML -match 'align=["'']?center["'']?' -and
+                $bodyHTML -match 'align=["'']?right["'']?') {
+                Write-Host "[PASS] Embedded DOM verified: heading, GFM table, reference link, sub/superscript, highlight, strikethrough, and table alignment rendered (documentMode: $documentMode)." -ForegroundColor Green
                 $script:verifiedBaseHref = $baseHref
                 $isRendererVerified = $true
+
+                # Regression: fragment links must scroll the preview, not
+                # navigate to the <base> directory (which replaces the doc).
+                # MSHTML's COM dispatch here exposes no window (parentWindow
+                # is null) and no writable scrollTop, so scroll via element
+                # scrollIntoView and measure with getBoundingClientRect.
+                try {
+                    $deepLink = $document.querySelector('a[href="#deep-target"]')
+                    $deepHeading = $document.getElementById("deep-target")
+                    $tailFiller = $document.getElementById("tail-filler")
+                    if (-not $deepLink -or -not $deepHeading -or -not $tailFiller) {
+                        throw "fragment link, target heading, or tail filler not found"
+                    }
+                    $tailFiller.scrollIntoView($true)
+                    Start-Sleep -Milliseconds 200
+                    $topAtBottom = [double]$deepHeading.getBoundingClientRect().top
+                    if ($topAtBottom -ge 0) {
+                        throw "fixture did not overflow the preview viewport (deep heading top: $topAtBottom)"
+                    }
+                    $deepLink.click()
+                    Start-Sleep -Milliseconds 300
+                    $topAfterClick = [double]$deepHeading.getBoundingClientRect().top
+                    $outputAfter = $document.getElementById("markdown-output")
+                    if (-not $outputAfter -or -not ([string]$outputAfter.innerHTML).Contains("Deep Target")) {
+                        throw "fragment click replaced the preview document content"
+                    }
+                    if ([Math]::Abs($topAfterClick) -gt 50) {
+                        throw "fragment click did not scroll target to viewport top (before: $topAtBottom, after: $topAfterClick)"
+                    }
+                    Write-Host "[PASS] Fragment link scrolled the preview (deep heading top: $topAtBottom -> $topAfterClick) without navigating away." -ForegroundColor Green
+                } catch {
+                    $script:anchorError = "ASSERTION FAILED: header-link check: $($_.Exception.Message)"
+                }
             }
         } catch {
             Write-Host "[INFO] DOM check attempt $($attempt + 1) not yet ready..."
@@ -301,8 +355,9 @@ try {
     }
 
     if (-not $isRendererVerified) {
-        throw "ASSERTION FAILED: Embedded Markdown DOM did not render heading, table, and reference link."
+        throw "ASSERTION FAILED: Embedded Markdown DOM did not render heading, table, reference link, and extended syntax (sub/sup/highlight/alignment)."
     }
+    if ($script:anchorError) { throw $script:anchorError }
 
     # Relative image paths must resolve against the markdown file's directory,
     # not the res:// URL used to host the template.
